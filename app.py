@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -49,6 +50,12 @@ app.title = "cammatEvac"
 server = app.server  # WSGI entrypoint for gunicorn (`gunicorn app:server`)
 
 _sample_grid = parse_xt_csv(SAMPLE_CSV)
+
+# Warm up the PNG exporter's headless browser at process startup rather than
+# on the first export click -- so a Render free-tier cold start only pays
+# the container-boot cost, not container-boot + browser-launch stacked on
+# the user's first click.
+get_exporter()
 
 
 def _heatmap_id(slot: str) -> dict:
@@ -224,11 +231,13 @@ for slot in SLOTS:
             return dash.no_update, "Nothing to export yet."
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{slot}_{timestamp}.png"
+        t0 = time.time()
         try:
             png_bytes = get_exporter().render_png(figure, width=1400, height=900, scale=2)
         except Exception as e:  # noqa: BLE001 - surfaced to the user instead of a bare 500
             return dash.no_update, f"Export failed: {type(e).__name__}: {e}"
-        return dcc.send_bytes(png_bytes, filename=filename), f"Downloaded {filename}"
+        elapsed = time.time() - t0
+        return dcc.send_bytes(png_bytes, filename=filename), f"Downloaded {filename} (rendered in {elapsed:.1f}s)"
 
 
 if __name__ == "__main__":
