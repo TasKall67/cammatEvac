@@ -224,7 +224,10 @@ for slot in SLOTS:
             return dash.no_update, "Nothing to export yet."
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{slot}_{timestamp}.png"
-        png_bytes = get_exporter().render_png(figure, width=1400, height=900, scale=2)
+        try:
+            png_bytes = get_exporter().render_png(figure, width=1400, height=900, scale=2)
+        except Exception as e:  # noqa: BLE001 - surfaced to the user instead of a bare 500
+            return dash.no_update, f"Export failed: {type(e).__name__}: {e}"
         return dcc.send_bytes(png_bytes, filename=filename), f"Downloaded {filename}"
 
 
