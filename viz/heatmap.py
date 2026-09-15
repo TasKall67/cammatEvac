@@ -5,17 +5,36 @@ time (s) on the Y axis (see Vasilikou_LB_Q1_100MW180m_T_left_Trajectories.jpg).
 """
 from __future__ import annotations
 
+import base64
+import mimetypes
+from functools import lru_cache
+from pathlib import Path
+
 import plotly.graph_objects as go
 
 from data.xt_parser import XTGrid
 from viz.colorscale import ColorScale
+
+ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+
+
+@lru_cache(maxsize=None)
+def _asset_data_uri(icon_path: str) -> str:
+    """Kaleido's headless PNG export has no Dash server/page context, so a
+    relative "/assets/..." image source (which resolves fine in the live
+    browser) fails to load and the icon is silently missing from exports.
+    Embedding the image as a base64 data URI works in both contexts."""
+    file_path = ASSETS_DIR / Path(icon_path).name
+    mime, _ = mimetypes.guess_type(file_path.name)
+    data = base64.b64encode(file_path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{data}"
 
 
 def build_heatmap_figure(
     grid: XTGrid,
     colorscale: ColorScale,
     x_dtick: float | None = 100,
-    y_dtick: float | None = 100,
+    y_dtick: float | None = 200,
 ) -> go.Figure:
     """x_dtick/y_dtick set the axis tick spacing (distance in m / time in s).
     Without these, Plotly auto-picks a "nice" interval based on the rendered
@@ -73,6 +92,8 @@ def add_reference_lines(
     evac_start_t: float | None = None,
     exits: list[float] | None = None,
     label_side: str = "left",
+    occupant_subscript: str = "",
+    label_above: bool = False,
 ) -> go.Figure:
     if evac_start_t is not None:
         # Evacuation START TIME is a moment in time -> horizontal line (constant t, y-axis).
@@ -87,17 +108,22 @@ def add_reference_lines(
             line=dict(color="#FFD400", width=3, dash="dash"),
         )
         is_left = label_side != "right"
+        t_label = f"t<sub>{occupant_subscript}</sub>" if occupant_subscript else "t"
+        # label_above lets two occupants with close evac_start_t values sit on opposite
+        # sides of their own line instead of overlapping each other.
+        yanchor = "bottom" if label_above else "top"
+        yshift = 4 if label_above else -4
         fig.add_annotation(
             xref="paper",
             yref="y",
             x=0.01 if is_left else 0.99,
             y=evac_start_t,
             xanchor="left" if is_left else "right",
-            yanchor="top",
-            yshift=-4,
-            text=f"<b>Evacuation start time, t = {evac_start_t:g}s</b>",
+            yanchor=yanchor,
+            yshift=yshift,
+            text=f"<b>Evacuation start time, {t_label} = {evac_start_t:g}s</b>",
             showarrow=False,
-            font=dict(size=14, color="yellow"),
+            font=dict(size=11, color="yellow"),
             bgcolor="rgba(255,255,255,0.0)",
         )
 
@@ -131,11 +157,11 @@ def add_exit_icons(
     for exit_x in exits:
         fig.add_annotation(
             x=exit_x,
-            y=0,
+            y=-0.018,
             xref="x",
             yref="paper",
             ax=0,
-            ay=25,  # pixel offset: tail 45px below the plot's bottom edge
+            ay=40,  # pixel offset: tail starts below the x-axis tick labels, not on top of them
             showarrow=True,
             arrowhead=2,
             arrowsize=1.2,
@@ -145,9 +171,9 @@ def add_exit_icons(
         )
         fig.add_layout_image(
             dict(
-                source=icon_path,
+                source=_asset_data_uri(icon_path),
                 x=exit_x,
-                y=-0.12,
+                y=-0.15,
                 xref="x",
                 yref="paper",
                 xanchor="center",
@@ -166,7 +192,7 @@ def add_occupant_icon(
     x_range: tuple[float, float],
     y_range: tuple[float, float],
     icon_path: str,
-    size_frac: float = 0.15,
+    size_frac: float = 0.08,
     offset_frac: float = 0.05,
 ) -> go.Figure:
     """Places an icon near the middle of the occupant's trajectory, nudged up
@@ -181,7 +207,7 @@ def add_occupant_icon(
     y_span = max(y_range[1] - y_range[0], 1e-6)
     fig.add_layout_image(
         dict(
-            source=icon_path,
+            source=_asset_data_uri(icon_path),
             x=mid_x,
             y=mid_t + offset_frac * y_span,
             xref="x",

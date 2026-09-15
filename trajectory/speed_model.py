@@ -16,8 +16,8 @@ import numpy as np
 
 PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
 
-DEFAULT_BREAKPOINTS = [0.0, 0.5, 0.7, 1.0, 4.0, ]
-DEFAULT_SPEEDS =      [1.5, 1.2, 1.0, 0.5, 0.3, ]
+DEFAULT_BREAKPOINTS = [0.0, 0.7, 1.0, 4.0, ]
+DEFAULT_SPEEDS =      [1.5, 1.0, 0.5, 0.3, ]
 
 
 @dataclass

@@ -7,6 +7,7 @@ from pathlib import Path
 import dash
 from dash import ALL, Input, Output, State, ctx, dcc, html
 
+from components.fed_table import build_fed_table, register_fed_table_callbacks
 from components.file_panel import (
     SLOT_LABELS,
     SLOTS,
@@ -37,7 +38,7 @@ from viz.png_export import get_exporter
 
 BASE_DIR = Path(__file__).resolve().parent
 SAMPLE_CSV = BASE_DIR / "Test03_Fire mode_XT.csv"
-OCCUPANT_ICON = "/assets/EvacuationPath.jpg"
+OCCUPANT_ICON = "/assets/EvacPath_icon.png"
 EXIT_ICON = "/assets/ExitDoor.png"
 
 OCCUPANTS = [
@@ -101,6 +102,8 @@ def build_panel_figure(
             evac_start_t=refs_data.get("evac_start_t"),
             exits=refs_data.get("exits"),
             label_side=label_side,
+            occupant_subscript=o["id"],
+            label_above=(o["id"] == "2"),
         )
         fig = add_exit_icons(fig, refs_data.get("exits"), x_range, icon_path=EXIT_ICON)
         segments = [PathSegment.from_dict(s) for s in (segments_data or [])]
@@ -170,6 +173,7 @@ app.layout = html.Div(
             ],
             style={"display": "flex", "gap": "20px"},
         ),
+        build_fed_table(),
     ],
     style={"fontFamily": "sans-serif", "margin": "20px"},
 )
@@ -180,6 +184,7 @@ for slot in SLOTS:
 register_speed_editor_callbacks(app, SHARED_SPEED_OWNER)
 for o in OCCUPANTS:
     register_occupant_callbacks(app, o["id"])
+register_fed_table_callbacks(app, OCCUPANTS)
 
 
 @app.callback(
@@ -241,4 +246,4 @@ for slot in SLOTS:
 
 
 if __name__ == "__main__":
-    app.run(debug=False, port=8050)
+    app.run(debug=True, port=8050)

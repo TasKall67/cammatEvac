@@ -8,34 +8,14 @@ caller supplies them (the UI asks for "nearest first"), not re-sorted here.
 """
 from __future__ import annotations
 
-import numpy as np
-from scipy.interpolate import RegularGridInterpolator
-
 from data.xt_parser import XTGrid
+from trajectory.grid_sampler import GridSampler
 from trajectory.segment import PathSegment
 from trajectory.speed_model import SpeedTable
 
 
-class OpacitySampler:
-    def __init__(self, grid: XTGrid):
-        self._x_min, self._x_max = float(grid.distances.min()), float(grid.distances.max())
-        self._t_min, self._t_max = float(grid.times.min()), float(grid.times.max())
-        self._interp = RegularGridInterpolator(
-            (grid.distances, grid.times), grid.values, bounds_error=False, fill_value=None
-        )
-
-    def at(self, x: float, t: float) -> float:
-        x = min(max(x, self._x_min), self._x_max)
-        t = min(max(t, self._t_min), self._t_max)
-        return float(self._interp([[x, t]])[0])
-
-    @property
-    def t_max(self) -> float:
-        return self._t_max
-
-
 def _integrate_leg(
-    sampler: OpacitySampler,
+    sampler: GridSampler,
     speed_table: SpeedTable,
     start_x: float,
     start_t: float,
@@ -74,7 +54,7 @@ def compute_path(
     if not exits:
         return []
 
-    sampler = OpacitySampler(grid)
+    sampler = GridSampler(grid)
     segments: list[PathSegment] = []
     x, t = start_x, start_t
 

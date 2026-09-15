@@ -77,7 +77,7 @@ def build_occupant_panel(occupant_id: str, label: str) -> html.Div:
                     {"label": " Manual waypoints", "value": MODE_MANUAL},
                     {"label": " Computed (speed vs opacity)", "value": MODE_COMPUTED},
                 ],
-                value=MODE_MANUAL,
+                value=MODE_COMPUTED,
                 labelStyle={"display": "block"},
             ),
             html.Label("Evacuation start time (s)", style={"marginTop": "6px", "display": "block"}),

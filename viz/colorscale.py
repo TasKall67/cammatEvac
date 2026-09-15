@@ -14,6 +14,10 @@ from pathlib import Path
 
 PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
 
+# Fixed share of the colorbar reserved for the plateau (>= last threshold), so a
+# runaway data max (e.g. a fire hotspot) can't crush the tuned color bands below it.
+_PLATEAU_FRACTION = 0.05
+
 # Defaults mirror the sample CAMATT legend (temperature, deg C).
 DEFAULT_PRESETS: dict[str, "ColorScale"] = {}
 
@@ -38,7 +42,17 @@ class ColorScale:
 
     def to_plotly_colorscale(self, data_min: float, data_max: float) -> tuple[list[list], float, float]:
         zmin = min(self.thresholds[0], data_min)
-        zmax = max(self.thresholds[-1], data_max)
+        top = self.thresholds[-1]
+        if data_max > top:
+            # Data runs past the last threshold (e.g. a fire hotspot far above the tuned
+            # color range). colors[-1] is a flat plateau with no gradient info beyond `top`,
+            # so the real data_max doesn't need representing on the bar -- it would only
+            # stretch the plateau and crush the tuned bands into a sliver. Instead, fix
+            # `top` at a set fraction of the bar and let the plateau fill the small remainder,
+            # regardless of how far past `top` the data actually goes.
+            zmax = zmin + (top - zmin) / (1 - _PLATEAU_FRACTION)
+        else:
+            zmax = top
         if zmax <= zmin:
             zmax = zmin + 1.0
 
