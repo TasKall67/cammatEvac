@@ -1,0 +1,4 @@
+scenario_id,start_x_1,evac_start_t_1,start_x_2,evac_start_t_2,exits
+Paramythias_R100N015,200,150,300,250,600|900
+Paramythias_L100N015,336,150,266,250,100|0
+Paramythias_L100Q300,336,150,266,250,100

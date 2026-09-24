@@ -7,6 +7,7 @@ from pathlib import Path
 import dash
 from dash import ALL, Input, Output, State, ctx, dcc, html
 
+from components.batch_panel import build_batch_panel, register_batch_panel_callbacks
 from components.fed_table import build_fed_table, register_fed_table_callbacks
 from components.file_panel import (
     SLOT_LABELS,
@@ -17,34 +18,19 @@ from components.file_panel import (
 )
 from components.legend_editor import build_legend_panel, register_legend_callbacks
 from components.occupant_panel import (
+    OCCUPANTS,
     build_occupant_panel,
     refs_store_id,
     register_occupant_callbacks,
     segments_store_id,
 )
 from components.speed_editor import SHARED_SPEED_OWNER, build_speed_editor, register_speed_editor_callbacks
-from data.xt_parser import XTGrid, parse_xt_csv
-from trajectory.segment import PathSegment
-from viz.colorscale import ColorScale, get_scale_for
-from viz.heatmap import (
-    add_exit_icons,
-    add_occupant_icon,
-    add_path_traces,
-    add_reference_lines,
-    build_empty_figure,
-    build_heatmap_figure,
-)
+from data.xt_parser import parse_xt_csv
+from viz.panel import build_panel_figure
 from viz.png_export import get_exporter
 
 BASE_DIR = Path(__file__).resolve().parent
 SAMPLE_CSV = BASE_DIR / "Test03_Fire mode_XT.csv"
-OCCUPANT_ICON = "/assets/EvacPath_icon.png"
-EXIT_ICON = "/assets/ExitDoor.png"
-
-OCCUPANTS = [
-    {"id": "1", "label": "Occupant 1", "color": "black"},
-    {"id": "2", "label": "Occupant 2", "color": "black"},
-]
 
 app = dash.Dash(__name__)
 app.title = "cammatEvac"
@@ -77,40 +63,6 @@ def _export_download_id(slot: str) -> dict:
 
 def _label_side_id(slot: str) -> dict:
     return {"type": "evac-label-side", "slot": slot}
-
-
-def build_panel_figure(
-    slot: str,
-    grid_data: dict | None,
-    legend_data: dict | None,
-    occupants_data,
-    label_side: str = "left",
-):
-    if grid_data is None:
-        return build_empty_figure(f"No {SLOT_LABELS[slot]} CSV loaded yet.")
-
-    grid = XTGrid.from_dict(grid_data)
-    scale = ColorScale.from_dict(legend_data) if legend_data else get_scale_for(SLOT_LABELS[slot])
-    fig = build_heatmap_figure(grid, scale)
-    x_range = (min(grid.distances), max(grid.distances))
-    y_range = (min(grid.times), max(grid.times))
-
-    for o, segments_data, refs_data in occupants_data:
-        refs_data = refs_data or {}
-        fig = add_reference_lines(
-            fig,
-            evac_start_t=refs_data.get("evac_start_t"),
-            exits=refs_data.get("exits"),
-            label_side=label_side,
-            occupant_subscript=o["id"],
-            label_above=(o["id"] == "2"),
-        )
-        fig = add_exit_icons(fig, refs_data.get("exits"), x_range, icon_path=EXIT_ICON)
-        segments = [PathSegment.from_dict(s) for s in (segments_data or [])]
-        fig = add_path_traces(fig, segments, color=o["color"], label=o["label"], x_range=x_range, y_range=y_range)
-        fig = add_occupant_icon(fig, segments, x_range, y_range, icon_path=OCCUPANT_ICON)
-
-    return fig
 
 
 app.layout = html.Div(
@@ -174,6 +126,7 @@ app.layout = html.Div(
             style={"display": "flex", "gap": "20px"},
         ),
         build_fed_table(),
+        build_batch_panel(),
     ],
     style={"fontFamily": "sans-serif", "margin": "20px"},
 )
@@ -185,6 +138,7 @@ register_speed_editor_callbacks(app, SHARED_SPEED_OWNER)
 for o in OCCUPANTS:
     register_occupant_callbacks(app, o["id"])
 register_fed_table_callbacks(app, OCCUPANTS)
+register_batch_panel_callbacks(app)
 
 
 @app.callback(
@@ -222,7 +176,7 @@ for slot in SLOTS:
         segs = occupant_data[:n]
         refs = occupant_data[n:]
         occupants_data = list(zip(OCCUPANTS, segs, refs))
-        return build_panel_figure(slot, grid_data, legend_data, occupants_data, label_side=label_side or "left")
+        return build_panel_figure(SLOT_LABELS[slot], grid_data, legend_data, occupants_data, label_side=label_side or "left")
 
     @app.callback(
         Output(_export_download_id(slot), "data"),

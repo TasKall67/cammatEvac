@@ -89,3 +89,58 @@ def compute_fed_checkpoints(
             break
 
     return checkpoints
+
+
+@dataclass
+class FedTimeseriesPoint:
+    leg_label: str  # e.g. "Fa", "Fb", "La"
+    time_s: float
+    position_m: float
+    temperature_c: float
+    cumulative_fed: float
+
+
+def compute_fed_timeseries(
+    segments: list[PathSegment],
+    temperature_grid: XTGrid | None,
+    occupant_prefix: str,
+    tenability: float = TENABILITY_LIMIT,
+) -> list[FedTimeseriesPoint]:
+    """Same accumulation as compute_fed_checkpoints, but returns every step
+    (not just the per-leg summary) -- for plotting temperature/FED vs time.
+    cumulative_fed lines up exactly with compute_fed_checkpoints' final_fed
+    values since both use the same midpoint-sampled increment; temperature_c
+    here is instead sampled at the actual point for a more intuitive reading."""
+    if not segments or temperature_grid is None:
+        return []
+
+    sampler = GridSampler(temperature_grid)
+    cumulative_fed = 0.0
+    out: list[FedTimeseriesPoint] = []
+
+    for i, seg in enumerate(segments):
+        leg_label = f"{occupant_prefix}{_LEG_NAMES[i] if i < len(_LEG_NAMES) else i}"
+        points = seg.points
+        if not points:
+            continue
+
+        t0, x0 = points[0]
+        out.append(FedTimeseriesPoint(leg_label, t0, x0, sampler.at(x0, t0), cumulative_fed))
+
+        reached_limit = False
+        for j in range(1, len(points)):
+            t_prev, x_prev = points[j - 1]
+            t_cur, x_cur = points[j]
+            dt_minutes = (t_cur - t_prev) / 60.0
+            t_mid, x_mid = (t_prev + t_cur) / 2.0, (x_prev + x_cur) / 2.0
+            cumulative_fed += dt_minutes / t_iconv_minutes(sampler.at(x_mid, t_mid))
+            out.append(FedTimeseriesPoint(leg_label, t_cur, x_cur, sampler.at(x_cur, t_cur), cumulative_fed))
+
+            if cumulative_fed >= tenability:
+                reached_limit = True
+                break
+
+        if reached_limit:
+            break
+
+    return out

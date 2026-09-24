@@ -20,6 +20,11 @@ from trajectory.speed_model import SpeedTable
 MODE_MANUAL = "manual"
 MODE_COMPUTED = "computed"
 
+OCCUPANTS = [
+    {"id": "1", "label": "Occupant 1", "color": "black"},
+    {"id": "2", "label": "Occupant 2", "color": "black"},
+]
+
 
 def _segments_store_id(occupant_id: str) -> dict:
     return {"type": "occupant-segments", "occupant": occupant_id}
