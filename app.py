@@ -79,6 +79,19 @@ app.layout = html.Div(
         ),
         html.Div(
             [
+                html.Label("Fire position (m):", style={"marginRight": "8px", "fontSize": "13px"}),
+                dcc.Input(id="fire-position-input", type="number", placeholder="e.g. 500", style={"width": "120px", "marginRight": "24px"}),
+                dcc.Checklist(
+                    id="continue-past-exit-toggle",
+                    options=[{"label": " Continue to next exit if the first one is missed", "value": "on"}],
+                    value=[],
+                    style={"display": "inline-block", "fontSize": "13px"},
+                ),
+            ],
+            style={"display": "flex", "alignItems": "center", "marginTop": "10px", "marginBottom": "10px"},
+        ),
+        html.Div(
+            [
                 html.Div(
                     dcc.Tabs(
                         id="param-tabs",
@@ -167,16 +180,26 @@ for slot in SLOTS:
         Input(grid_store_id(slot), "data"),
         Input({"type": "legend-store", "param": SLOT_LABELS[slot]}, "data"),
         Input("evac-label-side-store", "data"),
+        Input("fire-position-input", "value"),
+        Input(grid_store_id("temperature"), "data"),
         [Input(segments_store_id(o["id"]), "data") for o in OCCUPANTS],
         [Input(refs_store_id(o["id"]), "data") for o in OCCUPANTS],
         prevent_initial_call=False,
     )
-    def _update_panel(grid_data, legend_data, label_side, *occupant_data, slot=slot):
+    def _update_panel(grid_data, legend_data, label_side, fire_position, temperature_grid_data, *occupant_data, slot=slot):
         n = len(OCCUPANTS)
         segs = occupant_data[:n]
         refs = occupant_data[n:]
         occupants_data = list(zip(OCCUPANTS, segs, refs))
-        return build_panel_figure(SLOT_LABELS[slot], grid_data, legend_data, occupants_data, label_side=label_side or "left")
+        return build_panel_figure(
+            SLOT_LABELS[slot],
+            grid_data,
+            legend_data,
+            occupants_data,
+            label_side=label_side or "left",
+            fire_position=fire_position,
+            temperature_grid_data=temperature_grid_data,
+        )
 
     @app.callback(
         Output(_export_download_id(slot), "data"),

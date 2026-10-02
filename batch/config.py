@@ -11,13 +11,18 @@ including Greek -- default CSV exports to ";" because "," is the decimal
 separator), so neither of those two is safe to also use as the in-cell list
 separator. The outer column delimiter itself is auto-detected (comma or
 semicolon, whichever the file actually uses) so this works with either.
-See scenario_config_template.csv for the exact column layout.
+An optional fire_position column (meters) draws the fire-zone lines on the
+exported heatmaps; scenarios without it just don't get those lines. An
+optional study column ("+"-separated, e.g. "RASnoDG+SHI") groups this
+scenario's batch output into one subfolder per named study in the ZIP;
+scenarios without it go to the ZIP root, as before. See
+scenario_config_template.csv for the exact column layout.
 """
 from __future__ import annotations
 
 import csv
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -31,6 +36,8 @@ class ScenarioConfig:
     scenario_id: str
     exits: list[float]
     occupants: dict[str, OccupantConfig]  # keyed by occupant id, "1" / "2"
+    fire_position: float | None = None  # optional -- fire-zone lines are skipped if not given
+    studies: list[str] = field(default_factory=list)  # optional -- empty means "ZIP root, no subfolder"
 
 
 _REQUIRED_COLUMNS = ("scenario_id", "start_x_1", "evac_start_t_1", "start_x_2", "evac_start_t_2", "exits")
@@ -57,7 +64,7 @@ def parse_scenario_configs_text(text: str) -> dict[str, ScenarioConfig]:
 
     configs: dict[str, ScenarioConfig] = {}
     for i, row in enumerate(reader, start=2):  # start=2: row 1 is the header
-        empty = [c for c in _REQUIRED_COLUMNS if not row.get(c)]
+        empty = [c for c in _REQUIRED_COLUMNS if c != "exits" and not row.get(c)]
         if empty:
             raise ValueError(
                 f"config CSV row {i} is missing value(s) for {empty} -- likely everything landed in one "
@@ -65,6 +72,8 @@ def parse_scenario_configs_text(text: str) -> dict[str, ScenarioConfig]:
             )
         scenario_id = row["scenario_id"].strip()
         exits = [float(v.strip()) for v in row["exits"].split("|") if v.strip()]
+        fire_position_raw = (row.get("fire_position") or "").strip()
+        studies = [s.strip() for s in (row.get("study") or "").split("+") if s.strip()]
         configs[scenario_id] = ScenarioConfig(
             scenario_id=scenario_id,
             exits=exits,
@@ -72,5 +81,7 @@ def parse_scenario_configs_text(text: str) -> dict[str, ScenarioConfig]:
                 "1": OccupantConfig(start_x=float(row["start_x_1"]), evac_start_t=float(row["evac_start_t_1"])),
                 "2": OccupantConfig(start_x=float(row["start_x_2"]), evac_start_t=float(row["evac_start_t_2"])),
             },
+            fire_position=float(fire_position_raw) if fire_position_raw else None,
+            studies=studies,
         )
     return configs

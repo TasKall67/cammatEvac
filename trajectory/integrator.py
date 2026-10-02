@@ -4,7 +4,8 @@ The primary leg (start -> first exit) is solid; if more exits are given the
 occupant is assumed to keep walking past the first one (e.g. treating it as
 unavailable), continuing leg-by-leg through the remaining exits in the order
 given, each additional leg drawn dashed. Exits are consumed in the order the
-caller supplies them (the UI asks for "nearest first"), not re-sorted here.
+caller supplies them, not re-sorted here -- callers use select_valid_exits()
+below to turn a raw exit list into a fire-aware, nearest-first one first.
 """
 from __future__ import annotations
 
@@ -41,6 +42,66 @@ def _integrate_leg(
         x, t = x_next, t_next
         points.append((t, x))
     return points
+
+
+MIN_SAFE_DISTANCE_FROM_FIRE = 50  # meters -- an exit this close to the fire is too hot to use
+
+
+def select_valid_exits(
+    exits: list[float],
+    start_x: float,
+    fire_position: float | None,
+    tunnel_bounds: tuple[float, float] | None = None,
+    min_safe_distance_from_fire: float = MIN_SAFE_DISTANCE_FROM_FIRE,
+) -> list[float]:
+    """Drops any exit that would require crossing the fire's position to reach
+    (an occupant won't run toward/through the fire for a nominally-closer
+    exit), and any exit within min_safe_distance_from_fire of the fire even if
+    on the correct side (too hot to actually use), then sorts what's left
+    nearest-first from start_x -- so exit order no longer needs to be entered
+    manually in "nearest first" order.
+
+    tunnel_bounds (the tunnel's own start/end distances) are folded in as two
+    extra candidate exits -- the tunnel portals are always a way out, even if
+    no listed exit is reachable without crossing the fire -- but they're not
+    drawn with their own exit icon/line, since the tunnel-portal icon already
+    marks those two points."""
+    candidates = list(exits)
+    if tunnel_bounds is not None:
+        candidates += [tunnel_bounds[0], tunnel_bounds[1]]
+    if fire_position is not None:
+        if start_x <= fire_position:
+            candidates = [x for x in candidates if x <= fire_position]
+        else:
+            candidates = [x for x in candidates if x >= fire_position]
+        candidates = [x for x in candidates if abs(x - fire_position) >= min_safe_distance_from_fire]
+    return sorted(set(candidates), key=lambda x: abs(x - start_x))
+
+
+def compute_zoom_x_range(
+    exits: list[float],
+    start_x: float,
+    fire_position: float,
+    tunnel_bounds: tuple[float, float],
+) -> tuple[float, float]:
+    """X-axis range for a batch 'zoomed' export: from 100m past the fire on the
+    side AWAY from the occupant, in to 100m past the second-nearest-to-the-fire
+    exit on the occupant's own side (or the tunnel portal on that side, if
+    there's no second exit). "Second nearest to the fire" is a property of the
+    scenario (same for both occupants), not of any one occupant's own start_x.
+    """
+    on_lower_side = start_x <= fire_position
+    same_side = [x for x in exits if (x <= fire_position if on_lower_side else x >= fire_position)]
+    same_side.sort(key=lambda x: abs(x - fire_position))  # nearest-to-fire first
+
+    if on_lower_side:
+        far_boundary = fire_position + 100
+        near_boundary = (same_side[1] - 100) if len(same_side) >= 2 else tunnel_bounds[0]
+    else:
+        far_boundary = fire_position - 100
+        near_boundary = (same_side[1] + 100) if len(same_side) >= 2 else tunnel_bounds[1]
+
+    return (min(near_boundary, far_boundary), max(near_boundary, far_boundary))
 
 
 def compute_path(

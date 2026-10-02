@@ -7,13 +7,16 @@ rendered via batch produce identical figures.
 from __future__ import annotations
 
 from data.xt_parser import XTGrid
+from trajectory.fed import compute_fed_checkpoints, truncate_segments_at_time
 from trajectory.segment import PathSegment
 from viz.colorscale import ColorScale, get_scale_for
 from viz.heatmap import (
     add_exit_icons,
+    add_fire_zone,
     add_occupant_icon,
     add_path_traces,
     add_reference_lines,
+    add_tunnel_icons,
     build_empty_figure,
     build_heatmap_figure,
 )
@@ -28,6 +31,8 @@ def build_panel_figure(
     legend_data: dict | None,
     occupants_data,
     label_side: str = "left",
+    fire_position: float | None = None,
+    temperature_grid_data: dict | None = None,
 ):
     if grid_data is None:
         return build_empty_figure(f"No {slot_label} CSV loaded yet.")
@@ -37,6 +42,12 @@ def build_panel_figure(
     fig = build_heatmap_figure(grid, scale)
     x_range = (min(grid.distances), max(grid.distances))
     y_range = (min(grid.times), max(grid.times))
+
+    fig = add_tunnel_icons(fig, x_range)
+    if fire_position is not None:
+        fig = add_fire_zone(fig, fire_position)
+
+    temperature_grid = XTGrid.from_dict(temperature_grid_data) if temperature_grid_data else None
 
     for o, segments_data, refs_data in occupants_data:
         refs_data = refs_data or {}
@@ -50,7 +61,20 @@ def build_panel_figure(
         )
         fig = add_exit_icons(fig, refs_data.get("exits"), x_range, icon_path=EXIT_ICON)
         segments = [PathSegment.from_dict(s) for s in (segments_data or [])]
-        fig = add_path_traces(fig, segments, color=o["color"], label=o["label"], x_range=x_range, y_range=y_range)
+
+        incapacitated = False
+        if temperature_grid is not None and segments:
+            prefix = "F" if o["id"] == "1" else "L"
+            limit_cp = next(
+                (cp for cp in compute_fed_checkpoints(segments, temperature_grid, prefix) if cp.reached_limit), None
+            )
+            if limit_cp is not None:
+                segments = truncate_segments_at_time(segments, limit_cp.time_s)
+                incapacitated = True
+
+        fig = add_path_traces(
+            fig, segments, color=o["color"], label=o["label"], x_range=x_range, y_range=y_range, incapacitated=incapacitated
+        )
         fig = add_occupant_icon(fig, segments, x_range, y_range, icon_path=OCCUPANT_ICON)
 
     return fig

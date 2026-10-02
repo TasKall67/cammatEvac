@@ -38,6 +38,7 @@ class FedCheckpoint:
     reached_limit: bool
     position: float | None  # distance (m) where FED crossed the tenability limit
     distance_traveled: float | None  # cumulative path distance (m) walked at that point
+    time_s: float | None = None  # elapsed time (s) at which FED crossed the tenability limit
 
 
 def compute_fed_checkpoints(
@@ -59,6 +60,7 @@ def compute_fed_checkpoints(
         reached_limit = False
         limit_position: float | None = None
         limit_distance: float | None = None
+        limit_time: float | None = None
 
         points = seg.points
         for j in range(1, len(points)):
@@ -74,6 +76,7 @@ def compute_fed_checkpoints(
                 reached_limit = True
                 limit_position = x_cur
                 limit_distance = cumulative_distance
+                limit_time = t_cur
                 break
 
         checkpoints.append(
@@ -83,6 +86,7 @@ def compute_fed_checkpoints(
                 reached_limit=reached_limit,
                 position=limit_position,
                 distance_traveled=limit_distance,
+                time_s=limit_time,
             )
         )
         if reached_limit:
@@ -144,3 +148,20 @@ def compute_fed_timeseries(
             break
 
     return out
+
+
+def truncate_segments_at_time(segments: list[PathSegment], time_s: float) -> list[PathSegment]:
+    """Cuts a path's segments off at time_s, dropping everything after it --
+    used to stop drawing an occupant's path at the exact point their FED
+    crossed the tenability limit, since they can't physically continue past
+    that point. time_s is expected to exactly match one of the segments'
+    existing points (it comes from the same walk compute_fed_checkpoints did)."""
+    truncated: list[PathSegment] = []
+    for seg in segments:
+        kept_points = [p for p in seg.points if p[0] <= time_s]
+        if not kept_points:
+            break
+        truncated.append(PathSegment(points=kept_points, style=seg.style))
+        if kept_points[-1][0] >= time_s:
+            break
+    return truncated

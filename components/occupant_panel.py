@@ -13,7 +13,7 @@ from components.file_panel import grid_store_id
 from components.speed_editor import SHARED_SPEED_OWNER
 from components.speed_editor import store_id as speed_store_id
 from data.xt_parser import XTGrid
-from trajectory.integrator import compute_path
+from trajectory.integrator import compute_path, select_valid_exits
 from trajectory.segment import PathSegment
 from trajectory.speed_model import SpeedTable
 
@@ -163,9 +163,13 @@ def register_occupant_callbacks(app, occupant_id: str) -> None:
         State(_start_x_id(occupant_id), "value"),
         State(speed_store_id(SHARED_SPEED_OWNER), "data"),
         State(grid_store_id("opacity"), "data"),
+        State("continue-past-exit-toggle", "value"),
+        State("fire-position-input", "value"),
         prevent_initial_call=True,
     )
-    def _apply(_n, mode, waypoints_text, evac_start_t, exits_text, start_x, speed_data, opacity_grid_data):
+    def _apply(
+        _n, mode, waypoints_text, evac_start_t, exits_text, start_x, speed_data, opacity_grid_data, continue_toggle, fire_position
+    ):
         try:
             exits = _parse_exits(exits_text)
         except ValueError as e:
@@ -193,7 +197,15 @@ def register_occupant_callbacks(app, occupant_id: str) -> None:
 
         opacity_grid = XTGrid.from_dict(opacity_grid_data)
         speed_table = SpeedTable.from_dict(speed_data)
-        segments = compute_path(opacity_grid, float(start_x), float(evac_start_t), exits, speed_table, dt=1.0)
+        # "exits" (all of them, as entered) still goes into refs above, for drawing every
+        # exit marker regardless of fire-crossing or the toggle -- only the WALKED path is
+        # filtered/limited: exits requiring crossing the fire are dropped and the rest
+        # sorted nearest-first, then (by default) only the first of those is walked to,
+        # since continuing through missed exits is opt-in via the toggle.
+        tunnel_bounds = (float(opacity_grid.distances.min()), float(opacity_grid.distances.max()))
+        valid_exits = select_valid_exits(exits, float(start_x), fire_position, tunnel_bounds=tunnel_bounds)
+        exits_to_walk = valid_exits if "on" in (continue_toggle or []) else valid_exits[:1]
+        segments = compute_path(opacity_grid, float(start_x), float(evac_start_t), exits_to_walk, speed_table, dt=1.0)
         if not segments:
             return [], refs, "Computation produced no path."
         total_points = sum(len(s.points) for s in segments)

@@ -31,6 +31,7 @@ _SLOT_LABELS = {
 _SOURCE_UPLOAD_ID = "batch-source-upload"
 _CONFIG_UPLOAD_ID = "batch-config-upload"
 _CONFIG_STATUS_ID = "batch-config-status"
+_ZOOM_TOGGLE_ID = "batch-zoom-toggle"
 _RUN_BTN_ID = "batch-run-btn"
 _STATUS_ID = "batch-status"
 _DOWNLOAD_ID = "batch-download"
@@ -60,10 +61,11 @@ def build_batch_panel() -> html.Div:
                 'Drag & drop (or click to browse) several combined per-scenario XT CSVs -- each file has '
                 'temperature/opacity/CO stacked together, scenario id read from the file\'s own "Scenario:" '
                 'line -- plus one config CSV (columns: scenario_id,start_x_1,evac_start_t_1,start_x_2,'
-                'evac_start_t_2,exits -- occupants 1/2 can have different start positions and evacuation '
-                'times, exits are shared and "|"-separated, e.g. "600|900"). Exports all 3 heatmaps per '
-                "matched scenario as a single ZIP download, using whatever legend/speed-model/label-side "
-                "is currently set above.",
+                'evac_start_t_2,exits,fire_position -- occupants 1/2 can have different start positions and '
+                'evacuation times, exits are shared and "|"-separated e.g. "600|900", fire_position is '
+                'optional -- required if you want the zoomed-graph option below). Exports all 3 heatmaps '
+                "per matched scenario as a single ZIP download, using whatever legend/speed-model/label-side/"
+                "exit-continuation setting is currently set above.",
                 style={"fontSize": "12px", "color": "#666"},
             ),
             html.Label("Scenario CSVs (one or more)", style={"display": "block", "marginTop": "6px"}),
@@ -81,6 +83,17 @@ def build_batch_panel() -> html.Div:
                 style=_UPLOAD_STYLE,
             ),
             html.Div(id=_CONFIG_STATUS_ID, style={"fontSize": "12px", "color": "#666", "marginTop": "4px"}),
+            dcc.Checklist(
+                id=_ZOOM_TOGGLE_ID,
+                options=[
+                    {
+                        "label": " Also produce zoomed-in graphs (area around the fire/exits; needs fire_position)",
+                        "value": "on",
+                    }
+                ],
+                value=[],
+                style={"fontSize": "13px", "marginTop": "8px"},
+            ),
             html.Button("Run batch export", id=_RUN_BTN_ID, n_clicks=0, style={"marginTop": "8px"}),
             dcc.Download(id=_DOWNLOAD_ID),
             html.Pre(id=_STATUS_ID, style={"fontSize": "12px", "color": "#333", "whiteSpace": "pre-wrap", "marginTop": "8px"}),
@@ -133,11 +146,13 @@ def register_batch_panel_callbacks(app) -> None:
         [State({"type": "legend-store", "param": _SLOT_LABELS[slot]}, "data") for slot in SLOTS],
         State(speed_store_id(SHARED_SPEED_OWNER), "data"),
         State("evac-label-side-store", "data"),
+        State("continue-past-exit-toggle", "value"),
+        State(_ZOOM_TOGGLE_ID, "value"),
         prevent_initial_call=True,
     )
     def _run(_n, source_contents, source_filenames, config_contents, *rest):
         legend_datas = rest[: len(SLOTS)]
-        speed_data, label_side = rest[len(SLOTS) :]
+        speed_data, label_side, continue_toggle, zoom_toggle = rest[len(SLOTS) :]
 
         if not source_contents:
             return dash.no_update, "Add at least one scenario CSV first."
@@ -155,7 +170,13 @@ def register_batch_panel_callbacks(app) -> None:
 
         try:
             results, zip_bytes = run_batch(
-                scenario_files, config_text, legend_data_by_slot, speed_table, label_side or "left"
+                scenario_files,
+                config_text,
+                legend_data_by_slot,
+                speed_table,
+                label_side or "left",
+                continue_past_exit="on" in (continue_toggle or []),
+                produce_zoomed="on" in (zoom_toggle or []),
             )
         except Exception as e:  # noqa: BLE001 - surfaced to the user instead of a bare 500
             return dash.no_update, f"Batch failed: {type(e).__name__}: {e}"
@@ -164,7 +185,8 @@ def register_batch_panel_callbacks(app) -> None:
         skipped = [r for r in results if r.status == "skipped"]
         errored = [r for r in results if r.status == "error"]
 
-        lines = [f"Exported {len(ok)} scenario(s) x 3 files = {len(ok) * 3} PNG(s)."]
+        total_files = sum(len(r.output_files) for r in ok)
+        lines = [f"Exported {len(ok)} scenario(s), {total_files} PNG(s) total."]
         if skipped:
             lines.append(f"Skipped ({len(skipped)}):")
             lines += [f"  {r.scenario_id} -- {r.detail}" for r in skipped]
