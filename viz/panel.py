@@ -13,6 +13,7 @@ from viz.colorscale import ColorScale, get_scale_for
 from viz.heatmap import (
     add_exit_icons,
     add_fire_zone,
+    add_jetfan_lines,
     add_occupant_icon,
     add_path_traces,
     add_reference_lines,
@@ -33,6 +34,12 @@ def build_panel_figure(
     label_side: str = "left",
     fire_position: float | None = None,
     temperature_grid_data: dict | None = None,
+    jetfan_positions: list[float] | None = None,
+    jetfan_off_positions: list[float] | None = None,
+    jetfan_counts: list[int] | None = None,
+    jetfan_off_counts: list[int] | None = None,
+    show_jetfans: bool = False,
+    show_jetfans_off: bool = False,
 ):
     if grid_data is None:
         return build_empty_figure(f"No {slot_label} CSV loaded yet.")
@@ -46,6 +53,17 @@ def build_panel_figure(
     fig = add_tunnel_icons(fig, x_range)
     if fire_position is not None:
         fig = add_fire_zone(fig, fire_position)
+    if show_jetfans or show_jetfans_off:
+        fig = add_jetfan_lines(
+            fig,
+            jetfan_positions,
+            jetfan_off_positions,
+            x_range,
+            show_on=show_jetfans,
+            show_off=show_jetfans_off,
+            jetfan_counts=jetfan_counts,
+            jetfan_off_counts=jetfan_off_counts,
+        )
 
     temperature_grid = XTGrid.from_dict(temperature_grid_data) if temperature_grid_data else None
 
@@ -64,9 +82,8 @@ def build_panel_figure(
 
         incapacitated = False
         if temperature_grid is not None and segments:
-            prefix = "F" if o["id"] == "1" else "L"
             limit_cp = next(
-                (cp for cp in compute_fed_checkpoints(segments, temperature_grid, prefix) if cp.reached_limit), None
+                (cp for cp in compute_fed_checkpoints(segments, temperature_grid, o["id"]) if cp.reached_limit), None
             )
             if limit_cp is not None:
                 segments = truncate_segments_at_time(segments, limit_cp.time_s)

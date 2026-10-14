@@ -8,15 +8,27 @@ from dash import Input, Output, html
 from components.file_panel import grid_store_id
 from components.occupant_panel import segments_store_id
 from data.xt_parser import XTGrid
-from trajectory.fed import TENABILITY_LIMIT, compute_fed_checkpoints
+from trajectory.fed import TENABILITY_LIMIT, FedCheckpoint, compute_fed_checkpoints, compute_stationary_fed_checkpoint
 from trajectory.segment import PathSegment
 
 _TABLE_BODY_ID = "fed-table-body"
 _HEADERS = ["Leg", "FED", f"Reached {TENABILITY_LIMIT:g}?", "Position (m)", "Distance traveled (m)"]
 _CELL_STYLE = {"border": "1px solid #ddd", "padding": "4px 10px", "fontSize": "13px", "textAlign": "center"}
 
-# Occupant order in OCCUPANTS is [Occupant 1, Occupant 2] -- F(irst)/L(ast) prefixes per leg label.
-_PREFIXES = ["F", "L"]
+
+def _checkpoint_row(cp: FedCheckpoint) -> html.Tr:
+    return html.Tr(
+        [
+            html.Td(cp.leg_label, style=_CELL_STYLE),
+            html.Td(f"{cp.final_fed:.3f}", style=_CELL_STYLE),
+            html.Td("Yes" if cp.reached_limit else "No", style=_CELL_STYLE),
+            html.Td(f"{cp.position:.1f}" if cp.position is not None else "not reached", style=_CELL_STYLE),
+            html.Td(
+                f"{cp.distance_traveled:.1f}" if cp.distance_traveled is not None else "not reached",
+                style=_CELL_STYLE,
+            ),
+        ]
+    )
 
 
 def build_fed_table() -> html.Div:
@@ -47,30 +59,25 @@ def register_fed_table_callbacks(app, occupants: list[dict]) -> None:
 
         grid = XTGrid.from_dict(temperature_grid_data)
         rows = []
-        for segs_data, prefix in zip(segments_data_list, _PREFIXES):
+        for o, segs_data in zip(occupants, segments_data_list):
             segments = [PathSegment.from_dict(s) for s in (segs_data or [])]
-            checkpoints = compute_fed_checkpoints(segments, grid, prefix)
+            checkpoints = compute_fed_checkpoints(segments, grid, o["id"])
             if not checkpoints:
                 rows.append(
                     html.Tr(
-                        [html.Td(f"{prefix}–", style=_CELL_STYLE)]
+                        [html.Td(f"U{o['id']}–", style=_CELL_STYLE)]
                         + [html.Td("no path yet", style=_CELL_STYLE, colSpan=len(_HEADERS) - 1)]
                     )
                 )
                 continue
             for cp in checkpoints:
-                rows.append(
-                    html.Tr(
-                        [
-                            html.Td(cp.leg_label, style=_CELL_STYLE),
-                            html.Td(f"{cp.final_fed:.3f}", style=_CELL_STYLE),
-                            html.Td("Yes" if cp.reached_limit else "No", style=_CELL_STYLE),
-                            html.Td(f"{cp.position:.1f}" if cp.position is not None else "not reached", style=_CELL_STYLE),
-                            html.Td(
-                                f"{cp.distance_traveled:.1f}" if cp.distance_traveled is not None else "not reached",
-                                style=_CELL_STYLE,
-                            ),
-                        ]
-                    )
-                )
+                rows.append(_checkpoint_row(cp))
+
+            # Stationary reference row: this occupant standing still at their own
+            # start position from t=0 until they actually start moving -- exposure
+            # while waiting, not a real path (never shown on the heatmap itself).
+            wait_t, wait_x = segments[0].points[0]
+            stationary_cp = compute_stationary_fed_checkpoint(wait_x, wait_t, grid, f"TR{o['id']}")
+            if stationary_cp is not None:
+                rows.append(_checkpoint_row(stationary_cp))
         return rows

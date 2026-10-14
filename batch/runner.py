@@ -33,7 +33,14 @@ from batch.config import parse_scenario_configs_text
 from batch.discovery import read_scenario_id
 from components.occupant_panel import OCCUPANTS
 from data.xt_parser import parse_combined_xt_csv_text
-from trajectory.fed import compute_fed_checkpoints, compute_fed_timeseries
+from trajectory.fed import (
+    FedCheckpoint,
+    FedTimeseriesPoint,
+    compute_fed_checkpoints,
+    compute_fed_timeseries,
+    compute_stationary_fed_checkpoint,
+    compute_stationary_fed_timeseries,
+)
 from trajectory.integrator import compute_path, compute_zoom_x_range, select_valid_exits
 from trajectory.speed_model import SpeedTable
 from viz.panel import build_panel_figure
@@ -46,7 +53,6 @@ SLOT_LABELS = {
     "opacity": "Air opacity (1/m)",
     "co": "CO concentration (ppm)",
 }
-_OCCUPANT_PREFIXES = {"1": "F", "2": "L"}  # matches components.fed_table's F(irst)/L(ast) convention
 
 
 def _write_grouped(zf: zipfile.ZipFile, studies: list[str], filename: str, data: bytes) -> list[str]:
@@ -62,6 +68,28 @@ def _write_grouped(zf: zipfile.ZipFile, studies: list[str], filename: str, data:
 
 _FED_CSV_HEADERS = ["scenario_id", "occupant_id", "fed", "reached_0.3", "position_m", "distance_traveled_m"]
 _FED_TIMESERIES_HEADERS = ["scenario_id", "occupant_id", "time_s", "position_m", "temperature_c", "fed"]
+
+
+def _fed_row(scenario_id: str, cp: FedCheckpoint) -> dict:
+    return {
+        "scenario_id": scenario_id,
+        "occupant_id": cp.leg_label,
+        "fed": f"{cp.final_fed:.4f}",
+        "reached_0.3": "yes" if cp.reached_limit else "no",
+        "position_m": f"{cp.position:.1f}" if cp.position is not None else "",
+        "distance_traveled_m": f"{cp.distance_traveled:.1f}" if cp.distance_traveled is not None else "",
+    }
+
+
+def _fed_timeseries_row(scenario_id: str, pt: FedTimeseriesPoint) -> dict:
+    return {
+        "scenario_id": scenario_id,
+        "occupant_id": pt.leg_label,
+        "time_s": f"{pt.time_s:g}",
+        "position_m": f"{pt.position_m:.1f}",
+        "temperature_c": f"{pt.temperature_c:.1f}",
+        "fed": f"{pt.cumulative_fed:.4f}",
+    }
 
 
 @dataclass
@@ -80,6 +108,8 @@ def run_batch(
     label_side: str,
     continue_past_exit: bool = False,
     produce_zoomed: bool = False,
+    show_jetfans: bool = False,
+    show_jetfans_off: bool = False,
 ) -> tuple[list[ScenarioResult], bytes | None]:
     configs = parse_scenario_configs_text(config_csv_text)
     exporter = get_exporter()
@@ -135,8 +165,7 @@ def run_batch(
                     refs = {"evac_start_t": occ_config.evac_start_t, "exits": config.exits}
                     occupants_data.append((occupant, [s.to_dict() for s in segments], refs))
 
-                    prefix = _OCCUPANT_PREFIXES[occupant["id"]]
-                    fed_checkpoints = compute_fed_checkpoints(segments, grids["temperature"], prefix)
+                    fed_checkpoints = compute_fed_checkpoints(segments, grids["temperature"], occupant["id"])
                     # "Evacuation completion" for the zoomed Y-range: wherever this occupant's
                     # drawn path actually ends -- the FED-incapacitation point if it was cut
                     # short (matches the red X in the figure), else the raw path's last point.
@@ -145,27 +174,23 @@ def run_batch(
                     elif segments and segments[-1].points:
                         completion_times.append(segments[-1].points[-1][0])
                     for cp in fed_checkpoints:
-                        fed_rows.append(
-                            {
-                                "scenario_id": scenario_id,
-                                "occupant_id": cp.leg_label,
-                                "fed": f"{cp.final_fed:.4f}",
-                                "reached_0.3": "yes" if cp.reached_limit else "no",
-                                "position_m": f"{cp.position:.1f}" if cp.position is not None else "",
-                                "distance_traveled_m": f"{cp.distance_traveled:.1f}" if cp.distance_traveled is not None else "",
-                            }
-                        )
-                    for pt in compute_fed_timeseries(segments, grids["temperature"], prefix):
-                        fed_timeseries_rows.append(
-                            {
-                                "scenario_id": scenario_id,
-                                "occupant_id": pt.leg_label,
-                                "time_s": f"{pt.time_s:g}",
-                                "position_m": f"{pt.position_m:.1f}",
-                                "temperature_c": f"{pt.temperature_c:.1f}",
-                                "fed": f"{pt.cumulative_fed:.4f}",
-                            }
-                        )
+                        fed_rows.append(_fed_row(scenario_id, cp))
+                    for pt in compute_fed_timeseries(segments, grids["temperature"], occupant["id"]):
+                        fed_timeseries_rows.append(_fed_timeseries_row(scenario_id, pt))
+
+                    # Stationary reference rows: this occupant standing still at their own
+                    # start position from t=0 until occ_config.evac_start_t -- exposure while
+                    # waiting, for personal testing only, never drawn on the heatmap itself.
+                    tr_number = f"TR{occupant['id']}"
+                    stationary_cp = compute_stationary_fed_checkpoint(
+                        occ_config.start_x, occ_config.evac_start_t, grids["temperature"], tr_number
+                    )
+                    if stationary_cp is not None:
+                        fed_rows.append(_fed_row(scenario_id, stationary_cp))
+                    for pt in compute_stationary_fed_timeseries(
+                        occ_config.start_x, occ_config.evac_start_t, grids["temperature"], tr_number
+                    ):
+                        fed_timeseries_rows.append(_fed_timeseries_row(scenario_id, pt))
 
                 # Zoomed view is only computable with a fire position to anchor it -- scenarios
                 # without one just don't get zoomed exports, the normal ones are unaffected.
@@ -189,6 +214,12 @@ def run_batch(
                         label_side=label_side,
                         fire_position=config.fire_position,
                         temperature_grid_data=temperature_grid_data,
+                        jetfan_positions=config.jetfan_positions,
+                        jetfan_off_positions=config.jetfan_off_positions,
+                        jetfan_counts=config.jetfan_counts,
+                        jetfan_off_counts=config.jetfan_off_counts,
+                        show_jetfans=show_jetfans,
+                        show_jetfans_off=show_jetfans_off,
                     )
                     png_bytes = exporter.render_png(fig.to_dict(), width=1400, height=900, scale=2)
                     out_name = f"{scenario_id}_{SLOT_DISPLAY_NAMES[slot]}_traj.png"

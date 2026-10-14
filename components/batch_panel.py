@@ -32,6 +32,8 @@ _SOURCE_UPLOAD_ID = "batch-source-upload"
 _CONFIG_UPLOAD_ID = "batch-config-upload"
 _CONFIG_STATUS_ID = "batch-config-status"
 _ZOOM_TOGGLE_ID = "batch-zoom-toggle"
+_JETFAN_SHOW_TOGGLE_ID = "jetfan-show-toggle"
+_JETFAN_OFF_SHOW_TOGGLE_ID = "jetfan-off-show-toggle"
 _RUN_BTN_ID = "batch-run-btn"
 _STATUS_ID = "batch-status"
 _DOWNLOAD_ID = "batch-download"
@@ -94,6 +96,18 @@ def build_batch_panel() -> html.Div:
                 value=[],
                 style={"fontSize": "13px", "marginTop": "8px"},
             ),
+            dcc.Checklist(
+                id=_JETFAN_SHOW_TOGGLE_ID,
+                options=[{"label": " Show jet fan positions", "value": "on"}],
+                value=["on"],
+                style={"fontSize": "13px", "marginTop": "8px"},
+            ),
+            dcc.Checklist(
+                id=_JETFAN_OFF_SHOW_TOGGLE_ID,
+                options=[{"label": " Show out-of-service jet fans (JF2)", "value": "on"}],
+                value=["on"],
+                style={"fontSize": "13px", "marginTop": "8px"},
+            ),
             html.Button("Run batch export", id=_RUN_BTN_ID, n_clicks=0, style={"marginTop": "8px"}),
             dcc.Download(id=_DOWNLOAD_ID),
             html.Pre(id=_STATUS_ID, style={"fontSize": "12px", "color": "#333", "whiteSpace": "pre-wrap", "marginTop": "8px"}),
@@ -148,11 +162,13 @@ def register_batch_panel_callbacks(app) -> None:
         State("evac-label-side-store", "data"),
         State("continue-past-exit-toggle", "value"),
         State(_ZOOM_TOGGLE_ID, "value"),
+        State(_JETFAN_SHOW_TOGGLE_ID, "value"),
+        State(_JETFAN_OFF_SHOW_TOGGLE_ID, "value"),
         prevent_initial_call=True,
     )
     def _run(_n, source_contents, source_filenames, config_contents, *rest):
         legend_datas = rest[: len(SLOTS)]
-        speed_data, label_side, continue_toggle, zoom_toggle = rest[len(SLOTS) :]
+        speed_data, label_side, continue_toggle, zoom_toggle, jetfan_toggle, jetfan_off_toggle = rest[len(SLOTS) :]
 
         if not source_contents:
             return dash.no_update, "Add at least one scenario CSV first."
@@ -177,6 +193,8 @@ def register_batch_panel_callbacks(app) -> None:
                 label_side or "left",
                 continue_past_exit="on" in (continue_toggle or []),
                 produce_zoomed="on" in (zoom_toggle or []),
+                show_jetfans="on" in (jetfan_toggle or []),
+                show_jetfans_off="on" in (jetfan_off_toggle or []),
             )
         except Exception as e:  # noqa: BLE001 - surfaced to the user instead of a bare 500
             return dash.no_update, f"Batch failed: {type(e).__name__}: {e}"

@@ -231,6 +231,115 @@ def add_exit_icons(
     return fig
 
 
+def _jetfan_icon_and_factor(count: int, is_off: bool, icons: dict[str, str]) -> tuple[str, float]:
+    """Picks the icon (and its width factor relative to the single-fan icon)
+    for a given fan count at one position. Off fans only have single/pair
+    variants (count >= 2 all draw as the pair icon); working fans also have
+    a triple variant (count >= 3)."""
+    if is_off:
+        if count <= 1:
+            return icons["off"], 1.0
+        return icons["off_pair"], 1.6
+    if count <= 1:
+        return icons["on"], 1.0
+    if count == 2:
+        return icons["on_pair"], 1.6
+    return icons["on_triple"], 2.2
+
+
+def add_jetfan_lines(
+    fig: go.Figure,
+    jetfan_positions: list[float] | None,
+    jetfan_off_positions: list[float] | None,
+    x_range: tuple[float, float],
+    show_on: bool = True,
+    show_off: bool = True,
+    jetfan_counts: list[int] | None = None,
+    jetfan_off_counts: list[int] | None = None,
+    icon_on: str = "/assets/JetFan.png",
+    icon_on_pair: str = "/assets/JetFan_pair.png",
+    icon_on_triple: str = "/assets/JetFan_triple.png",
+    icon_off: str = "/assets/JetFan_off.png",
+    icon_off_pair: str = "/assets/JetFan_off_pair.png",
+) -> go.Figure:
+    """Thin grey dashed vertical line plus a small icon above the plot at each
+    jet fan position, sized to show how many fans (1/2/3) are there. A
+    position present in both lists (some fans there are off, others running)
+    only ever gets the off icon -- one icon per position, no overlap. Lines
+    are drawn layer="below" so occupant paths and the exit/fire lines (added
+    after this call) always sit on top of them."""
+    positions = jetfan_positions or []
+    off_positions_list = jetfan_off_positions or []
+    counts = jetfan_counts if jetfan_counts and len(jetfan_counts) == len(positions) else [1] * len(positions)
+    off_counts = (
+        jetfan_off_counts
+        if jetfan_off_counts and len(jetfan_off_counts) == len(off_positions_list)
+        else [1] * len(off_positions_list)
+    )
+
+    on_counts = dict(zip(positions, counts)) if show_on else {}
+    off_counts_by_pos = dict(zip(off_positions_list, off_counts)) if show_off else {}
+    all_positions = set(on_counts) | set(off_counts_by_pos)
+    if not all_positions:
+        return fig
+
+    icons = {
+        "on": icon_on,
+        "on_pair": icon_on_pair,
+        "on_triple": icon_on_triple,
+        "off": icon_off,
+        "off_pair": icon_off_pair,
+    }
+    span = max(x_range[1] - x_range[0], 1e-6)
+    base_sizex = 0.025 * span
+    base_sizey = 0.06
+    drawn_any = False
+    for x in sorted(all_positions):
+        if x < x_range[0] or x > x_range[1]:
+            continue
+        drawn_any = True
+        fig.add_shape(
+            type="line",
+            xref="x",
+            yref="paper",
+            x0=x,
+            x1=x,
+            y0=0,
+            y1=1,
+            line=dict(color="rgba(128,128,128,0.45)", width=1, dash="dash"),
+            layer="below",
+        )
+        is_off = x in off_counts_by_pos
+        count = off_counts_by_pos[x] if is_off else on_counts[x]
+        icon_path, width_factor = _jetfan_icon_and_factor(count, is_off, icons)
+        fig.add_layout_image(
+            dict(
+                source=_asset_data_uri(icon_path),
+                x=x,
+                y=1.04,
+                xref="x",
+                yref="paper",
+                xanchor="center",
+                yanchor="middle",
+                sizex=width_factor * base_sizex,
+                sizey=base_sizey,
+                layer="above",
+            )
+        )
+
+    if drawn_any:
+        current_margin = fig.layout.margin
+        fig.update_layout(
+            margin=dict(
+                l=current_margin.l,
+                r=current_margin.r,
+                t=max(current_margin.t or 0, 90),
+                b=current_margin.b,
+            )
+        )
+    return fig
+
+
 def add_tunnel_icons(
     fig: go.Figure,
     x_range: tuple[float, float],
@@ -334,11 +443,11 @@ def add_occupant_icon(
     y_range: tuple[float, float],
     icon_path: str,
     size_frac: float = 0.08,
-    offset_frac: float = 0.05,
+    offset_frac: float = 0.022,
 ) -> go.Figure:
-    """Places an icon near the middle of the occupant's trajectory, nudged up
-    (toward higher t) by offset_frac * y_span so it sits above the line rather
-    than sitting directly on top of / blocking it."""
+    """Places an icon near the middle of the occupant's trajectory. offset_frac
+    (fraction of y_span) nudges it up toward higher t if non-zero; at 0 it sits
+    centered directly on the line."""
     points = [p for seg in segments for p in seg.points]
     if not points:
         return fig
