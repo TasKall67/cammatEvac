@@ -206,11 +206,11 @@ def run_batch(
                 output_files = []
                 for slot in SLOTS:
                     grid = grids[slot]
-                    fig = build_panel_figure(
-                        SLOT_LABELS[slot],
-                        grid.to_dict(),
-                        legend_data_by_slot.get(slot),
-                        occupants_data,
+                    common_kwargs = dict(
+                        slot_label=SLOT_LABELS[slot],
+                        grid_data=grid.to_dict(),
+                        legend_data=legend_data_by_slot.get(slot),
+                        occupants_data=occupants_data,
                         label_side=label_side,
                         fire_position=config.fire_position,
                         temperature_grid_data=temperature_grid_data,
@@ -221,17 +221,26 @@ def run_batch(
                         show_jetfans=show_jetfans,
                         show_jetfans_off=show_jetfans_off,
                     )
+                    fig = build_panel_figure(**common_kwargs)
                     png_bytes = exporter.render_png(fig.to_dict(), width=1400, height=900, scale=2)
                     out_name = f"{scenario_id}_{SLOT_DISPLAY_NAMES[slot]}_traj.png"
                     output_files += _write_grouped(zf, config.studies, out_name, png_bytes)
                     any_output = True
 
                     if x_zoom_range is not None:
-                        # Reuses the exact same figure (traces/shapes/icons) built above --
-                        # zooming is just a viewport change, not a different render.
-                        fig.update_xaxes(range=list(x_zoom_range), dtick=None)
-                        fig.update_yaxes(range=list(y_zoom_range), dtick=None)
-                        zoom_png_bytes = exporter.render_png(fig.to_dict(), width=1400, height=900, scale=2)
+                        # A separate figure, not a viewport tweak of the one above --
+                        # icon_x_range/icon_y_range re-derive icon sizes (and the
+                        # tunnel icon's edge nudge) from the zoomed viewport's own
+                        # span, so they read at the same relative size/position as in
+                        # the normal export instead of the same fixed number of
+                        # meters looking oversized/off-boundary once squeezed into
+                        # the much narrower zoomed window.
+                        zoom_fig = build_panel_figure(
+                            **common_kwargs, icon_x_range=x_zoom_range, icon_y_range=y_zoom_range
+                        )
+                        zoom_fig.update_xaxes(range=list(x_zoom_range), dtick=None)
+                        zoom_fig.update_yaxes(range=list(y_zoom_range), dtick=None)
+                        zoom_png_bytes = exporter.render_png(zoom_fig.to_dict(), width=1400, height=900, scale=2)
                         zoom_name = f"z{scenario_id}_{SLOT_DISPLAY_NAMES[slot]}_traj.png"
                         output_files += _write_grouped(zf, config.studies, zoom_name, zoom_png_bytes)
 

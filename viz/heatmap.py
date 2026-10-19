@@ -344,13 +344,20 @@ def add_tunnel_icons(
     fig: go.Figure,
     x_range: tuple[float, float],
     icon_path: str = "/assets/Tunnel_Icon.png",
+    size_span: float | None = None,
 ) -> go.Figure:
     """Places the tunnel-portal icon at both ends of the x-axis (start and end
     of the tunnel), each labeled with its own distance value (0 at the start,
     the tunnel's full length at the end) baked into the icon's own green band
     via _tunnel_icon_with_length_uri -- so resizing the icon (sizex/sizey
-    below) scales the text right along with it, as one image."""
-    span = max(x_range[1] - x_range[0], 1e-6)
+    below) scales the text right along with it, as one image. The portals
+    always sit at the TRUE tunnel boundaries (x_range), but size_span controls
+    how big they're drawn and how far they're nudged in from the edge --
+    pass the currently-displayed viewport's span here (narrower than x_range
+    for a zoomed export) so the icon reads at the same relative size/position
+    as in the full, un-zoomed view instead of being a now-oversized, now
+    off-boundary-looking fixed number of meters."""
+    span = max(size_span if size_span is not None else x_range[1] - x_range[0], 1e-6)
     sizex = 0.04 * span  # icon width, fraction of the x-axis (distance) span -- matches add_exit_icons
     sizey = 0.1  # icon height, fraction of the plot's paper height -- matches add_exit_icons
     # Kaleido clips a layout image positioned at the exact axis boundary

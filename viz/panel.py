@@ -40,7 +40,18 @@ def build_panel_figure(
     jetfan_off_counts: list[int] | None = None,
     show_jetfans: bool = False,
     show_jetfans_off: bool = False,
+    icon_x_range: tuple[float, float] | None = None,
+    icon_y_range: tuple[float, float] | None = None,
 ):
+    """icon_x_range/icon_y_range control the span icon sizes (and the tunnel
+    icon's edge nudge) are computed relative to -- leave them None for the
+    normal full-tunnel view (the default, used everywhere except the batch
+    zoomed export), or pass the zoomed viewport's own range so icons read at
+    the same relative size there as in the normal view instead of the same
+    fixed number of meters looking oversized once squeezed into a much
+    narrower window. Icon POSITIONS (exit markers, tunnel portals, the
+    occupant's own path midpoint) are unaffected -- always the true data
+    coordinates."""
     if grid_data is None:
         return build_empty_figure(f"No {slot_label} CSV loaded yet.")
 
@@ -49,8 +60,10 @@ def build_panel_figure(
     fig = build_heatmap_figure(grid, scale)
     x_range = (min(grid.distances), max(grid.distances))
     y_range = (min(grid.times), max(grid.times))
+    icon_x_range = icon_x_range or x_range
+    icon_y_range = icon_y_range or y_range
 
-    fig = add_tunnel_icons(fig, x_range)
+    fig = add_tunnel_icons(fig, x_range, size_span=icon_x_range[1] - icon_x_range[0])
     if fire_position is not None:
         fig = add_fire_zone(fig, fire_position)
     if show_jetfans or show_jetfans_off:
@@ -58,7 +71,7 @@ def build_panel_figure(
             fig,
             jetfan_positions,
             jetfan_off_positions,
-            x_range,
+            icon_x_range,
             show_on=show_jetfans,
             show_off=show_jetfans_off,
             jetfan_counts=jetfan_counts,
@@ -77,7 +90,7 @@ def build_panel_figure(
             occupant_subscript=o["id"],
             label_above=(o["id"] == "2"),
         )
-        fig = add_exit_icons(fig, refs_data.get("exits"), x_range, icon_path=EXIT_ICON)
+        fig = add_exit_icons(fig, refs_data.get("exits"), icon_x_range, icon_path=EXIT_ICON)
         segments = [PathSegment.from_dict(s) for s in (segments_data or [])]
 
         incapacitated = False
@@ -92,6 +105,6 @@ def build_panel_figure(
         fig = add_path_traces(
             fig, segments, color=o["color"], label=o["label"], x_range=x_range, y_range=y_range, incapacitated=incapacitated
         )
-        fig = add_occupant_icon(fig, segments, x_range, y_range, icon_path=OCCUPANT_ICON)
+        fig = add_occupant_icon(fig, segments, icon_x_range, icon_y_range, icon_path=OCCUPANT_ICON)
 
     return fig
