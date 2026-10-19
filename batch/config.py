@@ -11,6 +11,13 @@ including Greek -- default CSV exports to ";" because "," is the decimal
 separator), so neither of those two is safe to also use as the in-cell list
 separator. The outer column delimiter itself is auto-detected (comma or
 semicolon, whichever the file actually uses) so this works with either.
+evac_start_t_2 is optional: occupant 2's actual evac-start time is normally
+computed dynamically at run time (see batch.runner / trajectory.integrator.
+compute_triggered_evac_start_t -- they react to whichever comes first, another
+occupant reaching their position or smoke reaching it), and evac_start_t_2
+here is used only as a fallback if that computation can't determine a trigger
+time at all (and even then only if given -- otherwise occupant 2 is skipped
+for that one scenario, noted in the batch status output).
 An optional fire_position column (meters) draws the fire-zone lines on the
 exported heatmaps; scenarios without it just don't get those lines. An
 optional study column ("+"-separated, e.g. "RASnoDG+SHI") groups this
@@ -35,7 +42,7 @@ from dataclasses import dataclass, field
 @dataclass
 class OccupantConfig:
     start_x: float
-    evac_start_t: float
+    evac_start_t: float | None  # None only possible for occupant 2 (fallback not given) -- see module docstring
 
 
 @dataclass
@@ -51,7 +58,7 @@ class ScenarioConfig:
     jetfan_off_counts: list[int] = field(default_factory=list)  # optional -- fan count per jetfan_off_positions entry
 
 
-_REQUIRED_COLUMNS = ("scenario_id", "start_x_1", "evac_start_t_1", "start_x_2", "evac_start_t_2", "exits")
+_REQUIRED_COLUMNS = ("scenario_id", "start_x_1", "evac_start_t_1", "start_x_2", "exits")
 
 
 def _parse_counts(raw: str, positions: list[float]) -> list[int]:
@@ -97,6 +104,7 @@ def parse_scenario_configs_text(text: str) -> dict[str, ScenarioConfig]:
             )
         scenario_id = row["scenario_id"].strip()
         exits = [float(v.strip()) for v in row["exits"].split("|") if v.strip()]
+        evac_start_t_2_raw = (row.get("evac_start_t_2") or "").strip()
         fire_position_raw = (row.get("fire_position") or "").strip()
         studies = [s.strip() for s in (row.get("study") or "").split("+") if s.strip()]
         jetfan_positions = [float(v.strip()) for v in (row.get("jetfan_positions") or "").split("|") if v.strip()]
@@ -110,7 +118,10 @@ def parse_scenario_configs_text(text: str) -> dict[str, ScenarioConfig]:
             exits=exits,
             occupants={
                 "1": OccupantConfig(start_x=float(row["start_x_1"]), evac_start_t=float(row["evac_start_t_1"])),
-                "2": OccupantConfig(start_x=float(row["start_x_2"]), evac_start_t=float(row["evac_start_t_2"])),
+                "2": OccupantConfig(
+                    start_x=float(row["start_x_2"]),
+                    evac_start_t=float(evac_start_t_2_raw) if evac_start_t_2_raw else None,
+                ),
             },
             fire_position=float(fire_position_raw) if fire_position_raw else None,
             studies=studies,

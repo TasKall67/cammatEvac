@@ -104,6 +104,52 @@ def compute_zoom_x_range(
     return (min(near_boundary, far_boundary), max(near_boundary, far_boundary))
 
 
+def compute_triggered_evac_start_t(
+    opacity_grid: XTGrid,
+    speed_table: SpeedTable,
+    leader_start_x: float,
+    leader_start_t: float,
+    follower_start_x: float,
+    leader_reaction_time: float = 130.0,
+    opacity_threshold: float = 0.1,
+    smoke_reaction_time: float = 80.0,
+    dt: float = 1.0,
+) -> float | None:
+    """Dynamic evacuation-start time for a "follower" occupant too far from
+    the fire to notice it directly, who instead reacts to whichever of two
+    cues comes first:
+      (a) a "leader" occupant (already evacuating) physically walking past
+          the follower's own start position -- leader_reaction_time seconds
+          after that moment;
+      (b) smoke (air opacity) itself reaching opacity_threshold at the
+          follower's own (stationary, not-yet-moving) position --
+          smoke_reaction_time seconds after that moment.
+    Returns the EARLIER of the two trigger times, or None if neither cue ever
+    occurs within the grid's simulated time window -- callers should fall
+    back to a fixed evac-start time in that case. The leader's walk here is
+    independent of whichever exit they eventually choose -- just "when do
+    they pass through this x position" -- so it doesn't need exits at all."""
+    sampler = GridSampler(opacity_grid)
+
+    leader_points = _integrate_leg(sampler, speed_table, leader_start_x, leader_start_t, follower_start_x, dt)
+    trigger_a = (
+        leader_points[-1][0] + leader_reaction_time
+        if len(leader_points) >= 2 and leader_points[-1][1] == follower_start_x
+        else None
+    )
+
+    trigger_b = None
+    t = 0.0
+    while t <= sampler.t_max:
+        if sampler.at(follower_start_x, t) >= opacity_threshold:
+            trigger_b = t + smoke_reaction_time
+            break
+        t += dt
+
+    candidates = [v for v in (trigger_a, trigger_b) if v is not None]
+    return min(candidates) if candidates else None
+
+
 def compute_path(
     grid: XTGrid,
     start_x: float,

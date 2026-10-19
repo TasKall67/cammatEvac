@@ -5,8 +5,18 @@ single-scenario UI (viz.panel.build_panel_figure, viz.png_export.get_exporter)
 -- a batch run is just that same logic looped over many uploaded scenario
 files, with occupant start/evac-time pulled from a companion config CSV
 instead of the occupant panel inputs. Occupants 1 and 2 each get their own
-start position and evacuation start time (config.occupants["1"]/["2"]) and
-share the scenario's exits. Runs entirely in memory -- inputs come from
+start position (config.occupants["1"]/["2"]) and share the scenario's exits.
+Occupant 1's evac-start time is always config.occupants["1"].evac_start_t as
+given. Occupant 2's is instead normally computed dynamically -- too far from
+the fire to notice it directly, they react to whichever comes first: occupant
+1 physically reaching occupant 2's own start position (+130s reaction time),
+or smoke (air opacity) reaching occupant 2's own position (+80s reaction
+time) -- see trajectory.integrator.compute_triggered_evac_start_t. Only if
+neither of those ever happens within the simulated time does occupant 2 fall
+back to config.occupants["2"].evac_start_t (if given at all; otherwise
+occupant 2 is skipped for that one scenario, noted in the ScenarioResult's
+detail even though the scenario as a whole still succeeds). Runs entirely in
+memory -- inputs come from
 uploaded file contents, output is a single ZIP containing the PNGs plus
 fed_results.csv (same per-leg FED checkpoints as the interactive FED table)
 and fed_timeseries.csv (time/temperature/FED at every step, for plotting).
@@ -41,7 +51,12 @@ from trajectory.fed import (
     compute_stationary_fed_checkpoint,
     compute_stationary_fed_timeseries,
 )
-from trajectory.integrator import compute_path, compute_zoom_x_range, select_valid_exits
+from trajectory.integrator import (
+    compute_path,
+    compute_triggered_evac_start_t,
+    compute_zoom_x_range,
+    select_valid_exits,
+)
 from trajectory.speed_model import SpeedTable
 from viz.panel import build_panel_figure
 from viz.png_export import get_exporter
@@ -153,16 +168,36 @@ def run_batch(
                 tunnel_bounds = (float(grids["opacity"].distances.min()), float(grids["opacity"].distances.max()))
                 occupants_data = []
                 completion_times = []
+                scenario_warnings = []
                 for occupant in OCCUPANTS:
                     occ_config = config.occupants[occupant["id"]]
+                    evac_start_t = occ_config.evac_start_t
+
+                    if occupant["id"] == "2":
+                        leader = config.occupants["1"]
+                        triggered_t = compute_triggered_evac_start_t(
+                            grids["opacity"], speed_table, leader.start_x, leader.evac_start_t, occ_config.start_x
+                        )
+                        if triggered_t is not None:
+                            evac_start_t = triggered_t
+                        elif occ_config.evac_start_t is not None:
+                            evac_start_t = occ_config.evac_start_t
+                        else:
+                            scenario_warnings.append(
+                                "occupant 2 skipped: neither trigger (occupant 1 reaching their position, or "
+                                "smoke reaching their position) occurred within the simulated time, and no "
+                                "fallback evac_start_t_2 was given"
+                            )
+                            continue
+
                     valid_exits = select_valid_exits(
                         config.exits, occ_config.start_x, config.fire_position, tunnel_bounds=tunnel_bounds
                     )
                     exits_to_walk = valid_exits if continue_past_exit else valid_exits[:1]
                     segments = compute_path(
-                        grids["opacity"], occ_config.start_x, occ_config.evac_start_t, exits_to_walk, speed_table, dt=1.0
+                        grids["opacity"], occ_config.start_x, evac_start_t, exits_to_walk, speed_table, dt=1.0
                     )
-                    refs = {"evac_start_t": occ_config.evac_start_t, "exits": config.exits}
+                    refs = {"evac_start_t": evac_start_t, "exits": config.exits}
                     occupants_data.append((occupant, [s.to_dict() for s in segments], refs))
 
                     fed_checkpoints = compute_fed_checkpoints(segments, grids["temperature"], occupant["id"])
@@ -179,16 +214,16 @@ def run_batch(
                         fed_timeseries_rows.append(_fed_timeseries_row(scenario_id, pt))
 
                     # Stationary reference rows: this occupant standing still at their own
-                    # start position from t=0 until occ_config.evac_start_t -- exposure while
-                    # waiting, for personal testing only, never drawn on the heatmap itself.
+                    # start position from t=0 until evac_start_t -- exposure while waiting,
+                    # for personal testing only, never drawn on the heatmap itself.
                     tr_number = f"TR{occupant['id']}"
                     stationary_cp = compute_stationary_fed_checkpoint(
-                        occ_config.start_x, occ_config.evac_start_t, grids["temperature"], tr_number
+                        occ_config.start_x, evac_start_t, grids["temperature"], tr_number
                     )
                     if stationary_cp is not None:
                         fed_rows.append(_fed_row(scenario_id, stationary_cp))
                     for pt in compute_stationary_fed_timeseries(
-                        occ_config.start_x, occ_config.evac_start_t, grids["temperature"], tr_number
+                        occ_config.start_x, evac_start_t, grids["temperature"], tr_number
                     ):
                         fed_timeseries_rows.append(_fed_timeseries_row(scenario_id, pt))
 
@@ -244,7 +279,9 @@ def run_batch(
                         zoom_name = f"z{scenario_id}_{SLOT_DISPLAY_NAMES[slot]}_traj.png"
                         output_files += _write_grouped(zf, config.studies, zoom_name, zoom_png_bytes)
 
-                results.append(ScenarioResult(scenario_id, "ok", output_files=output_files))
+                results.append(
+                    ScenarioResult(scenario_id, "ok", detail="; ".join(scenario_warnings), output_files=output_files)
+                )
             except Exception as e:  # noqa: BLE001 - surfaced per-scenario, one bad scenario shouldn't kill the batch
                 results.append(ScenarioResult(scenario_id, "error", f"{type(e).__name__}: {e}"))
 

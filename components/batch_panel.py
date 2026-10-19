@@ -63,8 +63,11 @@ def build_batch_panel() -> html.Div:
                 'Drag & drop (or click to browse) several combined per-scenario XT CSVs -- each file has '
                 'temperature/opacity/CO stacked together, scenario id read from the file\'s own "Scenario:" '
                 'line -- plus one config CSV (columns: scenario_id,start_x_1,evac_start_t_1,start_x_2,'
-                'evac_start_t_2,exits,fire_position -- occupants 1/2 can have different start positions and '
-                'evacuation times, exits are shared and "|"-separated e.g. "600|900", fire_position is '
+                'evac_start_t_2,exits,fire_position -- occupant 1\'s evac_start_t_1 is fixed as given; '
+                'occupant 2\'s own start time is instead computed from whichever happens first, occupant 1 '
+                'reaching occupant 2\'s position (+130s) or smoke reaching occupant 2\'s position (+80s) -- '
+                'evac_start_t_2 is only used as a fallback if neither ever happens, and can be left blank. '
+                'Exits are shared and "|"-separated e.g. "600|900", fire_position is '
                 'optional -- required if you want the zoomed-graph option below). Exports all 3 heatmaps '
                 "per matched scenario as a single ZIP download, using whatever legend/speed-model/label-side/"
                 "exit-continuation setting is currently set above.",
@@ -203,8 +206,13 @@ def register_batch_panel_callbacks(app) -> None:
         skipped = [r for r in results if r.status == "skipped"]
         errored = [r for r in results if r.status == "error"]
 
+        warned = [r for r in ok if r.detail]
+
         total_files = sum(len(r.output_files) for r in ok)
         lines = [f"Exported {len(ok)} scenario(s), {total_files} PNG(s) total."]
+        if warned:
+            lines.append(f"Warnings ({len(warned)}):")
+            lines += [f"  {r.scenario_id} -- {r.detail}" for r in warned]
         if skipped:
             lines.append(f"Skipped ({len(skipped)}):")
             lines += [f"  {r.scenario_id} -- {r.detail}" for r in skipped]
