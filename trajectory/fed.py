@@ -263,14 +263,18 @@ def compute_availability_times(
 ) -> tuple[float | None, float | None]:
     """ta (available time) / tr (required time), in seconds -- a fire-
     engineering-style ASET/RSET pair reported per occupant (not per leg).
-    tr is the time by which the occupant is safe: the FED=0.3 crossing time
-    if they ever reached it, else simply when their already-computed path
-    naturally ends (normally reaching the exit). ta only applies if FED=0.3
-    WAS reached: the time they'd have reached the exit had they kept walking
-    past that point on the SAME leg -- i.e. that leg's own natural
-    (un-truncated) endpoint, ignoring any further legs. ta is None for an
-    occupant who never reached the limit (their tr already IS the
-    exit-arrival time, there's nothing further to report)."""
+    tr is the time actually/hypothetically needed to reach the exit: if the
+    occupant never crosses FED=0.3, that's simply when their already-computed
+    path naturally ends (normally reaching the exit). If they DO cross
+    FED=0.3, tr instead becomes the time they'd have reached the exit had
+    they kept walking past that point on the SAME leg -- i.e. that leg's own
+    natural (un-truncated) endpoint, ignoring any further legs -- the time
+    egress would have required, independent of survivability. ta only applies
+    when FED=0.3 WAS reached at all: the moment conditions became untenable,
+    i.e. the time that was available before that happened (the FED=0.3
+    crossing time itself). ta is None for an occupant who never reached the
+    limit -- tenability was never the limiting factor, so there's nothing
+    further to report beyond tr."""
     if not checkpoints:
         return None, None
     last_cp = checkpoints[-1]
@@ -278,5 +282,5 @@ def compute_availability_times(
         tr = segments[-1].points[-1][0] if segments and segments[-1].points else None
         return None, tr
     tail = segment_tail_after_time(segments, last_cp.time_s)
-    ta = tail[0].points[-1][0] if tail else None
-    return ta, last_cp.time_s
+    tr = tail[0].points[-1][0] if tail else None
+    return last_cp.time_s, tr
