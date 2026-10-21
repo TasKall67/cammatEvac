@@ -488,11 +488,16 @@ def add_path_traces(
     y_range: tuple[float, float] | None = None,
     arrow_frac: float = 0.015,
     incapacitated: bool = False,
+    dash_override: str | None = None,
 ) -> go.Figure:
     """segments: list of PathSegment(points=[(t, x), ...], style='solid'|'dashed').
     incapacitated=True marks the END of the LAST segment with a red X instead of
     the normal arrowhead -- segments should already be truncated by the caller
-    to stop exactly at the point cumulative FED crossed the tenability limit."""
+    to stop exactly at the point cumulative FED crossed the tenability limit.
+    dash_override, when given, forces this whole call's line dash style
+    regardless of each segment's own .style -- used to draw the "if not
+    incapacitated" hypothetical continuation to the exit as a visually
+    distinct dotted trace, via a second add_path_traces call."""
     x_span = max(x_range[1] - x_range[0], 1e-6) if x_range else 1.0
     y_span = max(y_range[1] - y_range[0], 1e-6) if y_range else 1.0
 
@@ -506,7 +511,11 @@ def add_path_traces(
                 x=xs,
                 y=ts,
                 mode="lines",
-                line=dict(color=color, width=3, dash="solid" if seg.style == "solid" else "dash"),
+                line=dict(
+                    color=color,
+                    width=2 if dash_override else 3,
+                    dash=dash_override if dash_override is not None else ("solid" if seg.style == "solid" else "dash"),
+                ),
                 name=f"{label} segment {i + 1}".strip(),
                 showlegend=False,
                 hoverinfo="skip",

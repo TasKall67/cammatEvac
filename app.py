@@ -33,7 +33,7 @@ BASE_DIR = Path(__file__).resolve().parent
 SAMPLE_CSV = BASE_DIR / "Test03_Fire mode_XT.csv"
 
 app = dash.Dash(__name__)
-app.title = "cammatEvac"
+app.title = "cammatEvac by TasKall"
 server = app.server  # WSGI entrypoint for gunicorn (`gunicorn app:server`)
 
 _sample_grid = parse_xt_csv(SAMPLE_CSV)
@@ -67,7 +67,7 @@ def _label_side_id(slot: str) -> dict:
 
 app.layout = html.Div(
     [
-        html.H2("cammatEvac — Tunnel Fire/Evacuation Paths Visualization"),
+        html.H2("cammatEvac — Tunnel Fire/Evacuation Paths Visualization, by TasKall"),
         dcc.Store(id="evac-label-side-store", data="left"),
         html.Div(
             [

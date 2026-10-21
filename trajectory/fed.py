@@ -240,3 +240,43 @@ def truncate_segments_at_time(segments: list[PathSegment], time_s: float) -> lis
         if kept_points[-1][0] >= time_s:
             break
     return truncated
+
+
+def segment_tail_after_time(segments: list[PathSegment], time_s: float) -> list[PathSegment]:
+    """The complement of truncate_segments_at_time: the remainder of the ONE
+    segment containing time_s, from that point to its own natural end -- not
+    any further legs beyond it. Used to draw the hypothetical "if they hadn't
+    been incapacitated" continuation to the exit that leg was already heading
+    to, as a separate, distinctly-styled trace. [] if time_s isn't found in
+    any segment, or that segment ends exactly at time_s (nothing to continue)."""
+    for seg in segments:
+        if not seg.points:
+            continue
+        if seg.points[0][0] <= time_s <= seg.points[-1][0]:
+            tail = [p for p in seg.points if p[0] >= time_s]
+            return [PathSegment(points=tail, style=seg.style)] if len(tail) >= 2 else []
+    return []
+
+
+def compute_availability_times(
+    segments: list[PathSegment], checkpoints: list[FedCheckpoint]
+) -> tuple[float | None, float | None]:
+    """ta (available time) / tr (required time), in seconds -- a fire-
+    engineering-style ASET/RSET pair reported per occupant (not per leg).
+    tr is the time by which the occupant is safe: the FED=0.3 crossing time
+    if they ever reached it, else simply when their already-computed path
+    naturally ends (normally reaching the exit). ta only applies if FED=0.3
+    WAS reached: the time they'd have reached the exit had they kept walking
+    past that point on the SAME leg -- i.e. that leg's own natural
+    (un-truncated) endpoint, ignoring any further legs. ta is None for an
+    occupant who never reached the limit (their tr already IS the
+    exit-arrival time, there's nothing further to report)."""
+    if not checkpoints:
+        return None, None
+    last_cp = checkpoints[-1]
+    if not last_cp.reached_limit:
+        tr = segments[-1].points[-1][0] if segments and segments[-1].points else None
+        return None, tr
+    tail = segment_tail_after_time(segments, last_cp.time_s)
+    ta = tail[0].points[-1][0] if tail else None
+    return ta, last_cp.time_s

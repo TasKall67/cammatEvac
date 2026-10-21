@@ -46,6 +46,7 @@ from data.xt_parser import parse_combined_xt_csv_text
 from trajectory.fed import (
     FedCheckpoint,
     FedTimeseriesPoint,
+    compute_availability_times,
     compute_fed_checkpoints,
     compute_fed_timeseries,
     compute_stationary_fed_checkpoint,
@@ -81,11 +82,20 @@ def _write_grouped(zf: zipfile.ZipFile, studies: list[str], filename: str, data:
         zf.writestr(path, data)
     return paths
 
-_FED_CSV_HEADERS = ["scenario_id", "occupant_id", "fed", "reached_0.3", "position_m", "distance_traveled_m"]
+_FED_CSV_HEADERS = [
+    "scenario_id",
+    "occupant_id",
+    "fed",
+    "reached_0.3",
+    "position_m",
+    "distance_traveled_m",
+    "ta",
+    "tr",
+]
 _FED_TIMESERIES_HEADERS = ["scenario_id", "occupant_id", "time_s", "position_m", "temperature_c", "fed"]
 
 
-def _fed_row(scenario_id: str, cp: FedCheckpoint) -> dict:
+def _fed_row(scenario_id: str, cp: FedCheckpoint, ta: float | None = None, tr: float | None = None) -> dict:
     return {
         "scenario_id": scenario_id,
         "occupant_id": cp.leg_label,
@@ -93,6 +103,8 @@ def _fed_row(scenario_id: str, cp: FedCheckpoint) -> dict:
         "reached_0.3": "yes" if cp.reached_limit else "no",
         "position_m": f"{cp.position:.1f}" if cp.position is not None else "",
         "distance_traveled_m": f"{cp.distance_traveled:.1f}" if cp.distance_traveled is not None else "",
+        "ta": f"{ta:.1f}" if ta is not None else "",
+        "tr": f"{tr:.1f}" if tr is not None else "",
     }
 
 
@@ -208,8 +220,9 @@ def run_batch(
                         completion_times.append(fed_checkpoints[-1].time_s)
                     elif segments and segments[-1].points:
                         completion_times.append(segments[-1].points[-1][0])
+                    occupant_ta, occupant_tr = compute_availability_times(segments, fed_checkpoints)
                     for cp in fed_checkpoints:
-                        fed_rows.append(_fed_row(scenario_id, cp))
+                        fed_rows.append(_fed_row(scenario_id, cp, ta=occupant_ta, tr=occupant_tr))
                     for pt in compute_fed_timeseries(segments, grids["temperature"], occupant["id"]):
                         fed_timeseries_rows.append(_fed_timeseries_row(scenario_id, pt))
 

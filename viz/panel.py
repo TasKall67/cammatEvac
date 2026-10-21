@@ -7,7 +7,7 @@ rendered via batch produce identical figures.
 from __future__ import annotations
 
 from data.xt_parser import XTGrid
-from trajectory.fed import compute_fed_checkpoints, truncate_segments_at_time
+from trajectory.fed import compute_fed_checkpoints, segment_tail_after_time, truncate_segments_at_time
 from trajectory.segment import PathSegment
 from viz.colorscale import ColorScale, get_scale_for
 from viz.heatmap import (
@@ -94,17 +94,32 @@ def build_panel_figure(
         segments = [PathSegment.from_dict(s) for s in (segments_data or [])]
 
         incapacitated = False
+        ghost_segment = []
         if temperature_grid is not None and segments:
             limit_cp = next(
                 (cp for cp in compute_fed_checkpoints(segments, temperature_grid, o["id"]) if cp.reached_limit), None
             )
             if limit_cp is not None:
+                ghost_segment = segment_tail_after_time(segments, limit_cp.time_s)
                 segments = truncate_segments_at_time(segments, limit_cp.time_s)
                 incapacitated = True
 
         fig = add_path_traces(
             fig, segments, color=o["color"], label=o["label"], x_range=x_range, y_range=y_range, incapacitated=incapacitated
         )
+        if ghost_segment:
+            # Hypothetical "if they hadn't been incapacitated" continuation to
+            # the exit that leg was already heading to -- a dotted trace past
+            # the red X, distinct from a normal dashed missed-exit leg.
+            fig = add_path_traces(
+                fig,
+                ghost_segment,
+                color=o["color"],
+                label=o["label"],
+                x_range=x_range,
+                y_range=y_range,
+                dash_override="dot",
+            )
         fig = add_occupant_icon(fig, segments, icon_x_range, icon_y_range, icon_path=OCCUPANT_ICON)
 
     return fig
