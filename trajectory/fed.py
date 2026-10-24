@@ -1,7 +1,7 @@
 """Fractional Effective Dose (FED) from convective heat exposure along a computed path.
 
-FED = sum(dt / t_Iconv), where t_Iconv = 5e7 * T**-3.4 (T in degC, t_Iconv in
-minutes) is the Purser convective-heat term of the standard FED model. The
+FED = sum(dt / t_Iconv), where t_Iconv = 1.125e7 * T**-3.4 (T in degC, t_Iconv
+in minutes) is the Purser convective-heat term of the standard FED model. The
 radiant term (1/t_Irad) is assumed zero here per the user's request.
 
 Accumulation is continuous across an occupant's path segments -- an occupant
@@ -36,7 +36,7 @@ def t_iconv_minutes(temp_c: float) -> float:
     """Time to incapacitation from convective heat, in minutes (Purser)."""
     if temp_c <= 0:
         return float("inf")  # no meaningful convective-heat dose at/below 0 degC
-    return 5e7 * temp_c**-3.4
+    return 1.125e7 * temp_c**-3.4
 
 
 @dataclass
