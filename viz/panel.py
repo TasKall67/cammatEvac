@@ -82,13 +82,19 @@ def build_panel_figure(
 
     for o, segments_data, refs_data in occupants_data:
         refs_data = refs_data or {}
+        # Occupants 3/4 (two-way-traffic batch scenarios) sit on the downstream
+        # side of the fire from 1/2 -- using the same label_side as 1/2 would
+        # pile their evac-start-time label on the same paper edge, far from
+        # their own side of the plot and overlapping 1/2's. Flipping it to the
+        # opposite edge keeps it near their own side and clear of 1/2's label.
+        occupant_label_side = label_side if o["id"] in ("1", "2") else ("right" if label_side != "right" else "left")
         fig = add_reference_lines(
             fig,
             evac_start_t=refs_data.get("evac_start_t"),
             exits=refs_data.get("exits"),
-            label_side=label_side,
+            label_side=occupant_label_side,
             occupant_subscript=o["id"],
-            label_above=(o["id"] == "2"),
+            label_above=(o["id"] in ("2", "4")),
         )
         fig = add_exit_icons(fig, refs_data.get("exits"), icon_x_range, icon_path=EXIT_ICON)
         segments = [PathSegment.from_dict(s) for s in (segments_data or [])]

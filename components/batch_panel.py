@@ -68,7 +68,11 @@ def build_batch_panel() -> html.Div:
                 'reaching occupant 2\'s position (+130s) or smoke reaching occupant 2\'s position (+80s) -- '
                 'evac_start_t_2 is only used as a fallback if neither ever happens, and can be left blank. '
                 'Exits are shared and "|"-separated e.g. "600|900", fire_position is '
-                'optional -- required if you want the zoomed-graph option below). Exports all 3 heatmaps '
+                'optional -- required if you want the zoomed-graph option below. Four more optional columns, '
+                'start_x_3,evac_start_t_3,start_x_4,evac_start_t_4, add occupants 3/4 for two-way-traffic '
+                'scenarios -- people on the downstream side of the fire too, mirroring 1/2 the same way '
+                "(occupant 3 fixed like 1, occupant 4's own start time dynamic like 2 with occupant 3 as its "
+                "leader); leave all four blank for a normal one-way scenario). Exports all 3 heatmaps "
                 "per matched scenario as a single ZIP download, using whatever legend/speed-model/label-side/"
                 "exit-continuation setting is currently set above.",
                 style={"fontSize": "12px", "color": "#666"},

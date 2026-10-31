@@ -18,6 +18,14 @@ occupant reaching their position or smoke reaching it), and evac_start_t_2
 here is used only as a fallback if that computation can't determine a trigger
 time at all (and even then only if given -- otherwise occupant 2 is skipped
 for that one scenario, noted in the batch status output).
+Four further optional columns -- start_x_3, evac_start_t_3, start_x_4,
+evac_start_t_4 -- add occupants 3/4 for two-way-traffic scenarios (people on
+the downstream side of the fire too): occupant 3 mirrors occupant 1 (fixed,
+required evac_start_t_3 once start_x_3 is given), occupant 4 mirrors occupant
+2 (evac_start_t_4 optional, same dynamic-trigger/fallback behavior, with
+occupant 3 as its leader). Leave all four blank for a normal one-way
+scenario -- occupants 3/4 then simply don't exist for it, identical to
+before this pair of columns existed.
 An optional fire_position column (meters) draws the fire-zone lines on the
 exported heatmaps; scenarios without it just don't get those lines. An
 optional study column ("+"-separated, e.g. "RASnoDG+SHI") groups this
@@ -49,7 +57,7 @@ class OccupantConfig:
 class ScenarioConfig:
     scenario_id: str
     exits: list[float]
-    occupants: dict[str, OccupantConfig]  # keyed by occupant id, "1" / "2"
+    occupants: dict[str, OccupantConfig]  # keyed by occupant id, "1"/"2" always, "3"/"4" when given (two-way traffic)
     fire_position: float | None = None  # optional -- fire-zone lines are skipped if not given
     studies: list[str] = field(default_factory=list)  # optional -- empty means "ZIP root, no subfolder"
     jetfan_positions: list[float] = field(default_factory=list)  # optional -- working jet fans
@@ -113,16 +121,34 @@ def parse_scenario_configs_text(text: str) -> dict[str, ScenarioConfig]:
         ]
         jetfan_counts = _parse_counts(row.get("jetfan_counts") or "", jetfan_positions)
         jetfan_off_counts = _parse_counts(row.get("jetfan_off_counts") or "", jetfan_off_positions)
+        occupants = {
+            "1": OccupantConfig(start_x=float(row["start_x_1"]), evac_start_t=float(row["evac_start_t_1"])),
+            "2": OccupantConfig(
+                start_x=float(row["start_x_2"]),
+                evac_start_t=float(evac_start_t_2_raw) if evac_start_t_2_raw else None,
+            ),
+        }
+        start_x_3_raw = (row.get("start_x_3") or "").strip()
+        if start_x_3_raw:
+            evac_start_t_3_raw = (row.get("evac_start_t_3") or "").strip()
+            if not evac_start_t_3_raw:
+                raise ValueError(
+                    f"config CSV row {i}: start_x_3 is given but evac_start_t_3 is blank -- "
+                    f"occupant 3's start time is fixed (like occupant 1's), not optional."
+                )
+            occupants["3"] = OccupantConfig(start_x=float(start_x_3_raw), evac_start_t=float(evac_start_t_3_raw))
+        start_x_4_raw = (row.get("start_x_4") or "").strip()
+        if start_x_4_raw:
+            evac_start_t_4_raw = (row.get("evac_start_t_4") or "").strip()
+            occupants["4"] = OccupantConfig(
+                start_x=float(start_x_4_raw),
+                evac_start_t=float(evac_start_t_4_raw) if evac_start_t_4_raw else None,
+            )
+
         configs[scenario_id] = ScenarioConfig(
             scenario_id=scenario_id,
             exits=exits,
-            occupants={
-                "1": OccupantConfig(start_x=float(row["start_x_1"]), evac_start_t=float(row["evac_start_t_1"])),
-                "2": OccupantConfig(
-                    start_x=float(row["start_x_2"]),
-                    evac_start_t=float(evac_start_t_2_raw) if evac_start_t_2_raw else None,
-                ),
-            },
+            occupants=occupants,
             fire_position=float(fire_position_raw) if fire_position_raw else None,
             studies=studies,
             jetfan_positions=jetfan_positions,

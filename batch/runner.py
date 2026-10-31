@@ -4,18 +4,25 @@ Reuses the exact same figure-building and PNG-export code as the interactive
 single-scenario UI (viz.panel.build_panel_figure, viz.png_export.get_exporter)
 -- a batch run is just that same logic looped over many uploaded scenario
 files, with occupant start/evac-time pulled from a companion config CSV
-instead of the occupant panel inputs. Occupants 1 and 2 each get their own
-start position (config.occupants["1"]/["2"]) and share the scenario's exits.
-Occupant 1's evac-start time is always config.occupants["1"].evac_start_t as
-given. Occupant 2's is instead normally computed dynamically -- too far from
-the fire to notice it directly, they react to whichever comes first: occupant
-1 physically reaching occupant 2's own start position (+130s reaction time),
-or smoke (air opacity) reaching occupant 2's own position (+80s reaction
-time) -- see trajectory.integrator.compute_triggered_evac_start_t. Only if
-neither of those ever happens within the simulated time does occupant 2 fall
-back to config.occupants["2"].evac_start_t (if given at all; otherwise
-occupant 2 is skipped for that one scenario, noted in the ScenarioResult's
-detail even though the scenario as a whole still succeeds). Runs entirely in
+instead of the occupant panel inputs. Occupants 1-4 each get their own start
+position (config.occupants["1"] through ["4"], see BATCH_OCCUPANTS below --
+NOT components.occupant_panel.OCCUPANTS, which stays the interactive single-
+scenario UI's own fixed 2-occupant list) and share the scenario's exits.
+Occupants 1 and 3 always have a fixed evac-start time, given directly.
+Occupants 2 and 4 instead normally have theirs computed dynamically -- too
+far from the fire to notice it directly, they react to whichever comes
+first: their "leader" (occupant 1 for occupant 2, occupant 3 for occupant 4)
+physically reaching their own position (+130s reaction time), or smoke (air
+opacity) reaching their own position (+80s reaction time) -- see
+trajectory.integrator.compute_triggered_evac_start_t. Only if neither of
+those ever happens within the simulated time does occupant 2/4 fall back to
+their own config evac_start_t (if given at all; otherwise that occupant is
+skipped for that one scenario, noted in the ScenarioResult's detail even
+though the scenario as a whole still succeeds). Occupants 3/4 exist only for
+two-way-traffic scenarios (people on the downstream side of the fire too) --
+config.occupants simply doesn't have "3"/"4" keys otherwise, and the loop
+below skips whatever isn't present, so a scenario without them renders
+identically to before this pair of occupants existed. Runs entirely in
 memory -- inputs come from
 uploaded file contents, output is a single ZIP containing the PNGs plus
 fed_results.csv (same per-leg FED checkpoints as the interactive FED table)
@@ -41,7 +48,6 @@ from io import BytesIO
 
 from batch.config import parse_scenario_configs_text
 from batch.discovery import read_scenario_id
-from components.occupant_panel import OCCUPANTS
 from data.xt_parser import parse_combined_xt_csv_text
 from trajectory.fed import (
     FedCheckpoint,
@@ -69,6 +75,20 @@ SLOT_LABELS = {
     "opacity": "Air opacity (1/m)",
     "co": "CO concentration (ppm)",
 }
+
+# Batch-only -- the interactive single-scenario UI keeps its own fixed
+# 2-occupant components.occupant_panel.OCCUPANTS, untouched. Occupants 3/4
+# only ever get used when a scenario's config row actually has them (see
+# batch.config), so a scenario without them loops over just "1"/"2" as before.
+BATCH_OCCUPANTS = [
+    {"id": "1", "label": "Occupant 1", "color": "black"},
+    {"id": "2", "label": "Occupant 2", "color": "black"},
+    {"id": "3", "label": "Occupant 3", "color": "black"},
+    {"id": "4", "label": "Occupant 4", "color": "black"},
+]
+
+# occupant id -> its "leader" id for the dynamic trigger (compute_triggered_evac_start_t)
+_LEADER_OF = {"2": "1", "4": "3"}
 
 
 def _write_grouped(zf: zipfile.ZipFile, studies: list[str], filename: str, data: bytes) -> list[str]:
@@ -181,12 +201,21 @@ def run_batch(
                 occupants_data = []
                 completion_times = []
                 scenario_warnings = []
-                for occupant in OCCUPANTS:
+                for occupant in BATCH_OCCUPANTS:
+                    if occupant["id"] not in config.occupants:
+                        continue
                     occ_config = config.occupants[occupant["id"]]
                     evac_start_t = occ_config.evac_start_t
 
-                    if occupant["id"] == "2":
-                        leader = config.occupants["1"]
+                    leader_id = _LEADER_OF.get(occupant["id"])
+                    if leader_id is not None:
+                        leader = config.occupants.get(leader_id)
+                        if leader is None:
+                            scenario_warnings.append(
+                                f"occupant {occupant['id']} skipped: no occupant {leader_id} (leader) "
+                                f"configured for this scenario"
+                            )
+                            continue
                         triggered_t = compute_triggered_evac_start_t(
                             grids["opacity"], speed_table, leader.start_x, leader.evac_start_t, occ_config.start_x
                         )
@@ -196,9 +225,9 @@ def run_batch(
                             evac_start_t = occ_config.evac_start_t
                         else:
                             scenario_warnings.append(
-                                "occupant 2 skipped: neither trigger (occupant 1 reaching their position, or "
-                                "smoke reaching their position) occurred within the simulated time, and no "
-                                "fallback evac_start_t_2 was given"
+                                f"occupant {occupant['id']} skipped: neither trigger (occupant {leader_id} "
+                                f"reaching their position, or smoke reaching their position) occurred within "
+                                f"the simulated time, and no fallback evac_start_t_{occupant['id']} was given"
                             )
                             continue
 
@@ -245,9 +274,21 @@ def run_batch(
                 x_zoom_range = None
                 y_zoom_range = None
                 if produce_zoomed and config.fire_position is not None:
-                    x_zoom_range = compute_zoom_x_range(
-                        config.exits, config.occupants["1"].start_x, config.fire_position, tunnel_bounds
-                    )
+                    zoom_ranges = [
+                        compute_zoom_x_range(
+                            config.exits, config.occupants["1"].start_x, config.fire_position, tunnel_bounds
+                        )
+                    ]
+                    if "3" in config.occupants:
+                        # Two-way traffic -- union with the downstream side's own range
+                        # (occupant 3's start_x only decides WHICH side, same as occupant
+                        # 1 above, so there's no need to also do this for occupant 4).
+                        zoom_ranges.append(
+                            compute_zoom_x_range(
+                                config.exits, config.occupants["3"].start_x, config.fire_position, tunnel_bounds
+                            )
+                        )
+                    x_zoom_range = (min(r[0] for r in zoom_ranges), max(r[1] for r in zoom_ranges))
                     y_zoom_range = (0, max(completion_times, default=0) + 200)
 
                 temperature_grid_data = grids["temperature"].to_dict()
