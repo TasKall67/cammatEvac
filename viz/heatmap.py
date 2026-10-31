@@ -21,12 +21,23 @@ ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 
 
 @lru_cache(maxsize=None)
-def _asset_data_uri(icon_path: str) -> str:
+def _asset_data_uri(icon_path: str, flip_horizontal: bool = False) -> str:
     """Kaleido's headless PNG export has no Dash server/page context, so a
     relative "/assets/..." image source (which resolves fine in the live
     browser) fails to load and the icon is silently missing from exports.
-    Embedding the image as a base64 data URI works in both contexts."""
+    Embedding the image as a base64 data URI works in both contexts.
+    flip_horizontal mirrors the image itself before encoding -- Plotly
+    layout images support flipping via a negative sizex in the browser, but
+    Kaleido's static PNG export silently ignores that and renders the
+    original orientation, so the pixels have to be mirrored up front
+    instead for it to show up in exported PNGs."""
     file_path = ASSETS_DIR / Path(icon_path).name
+    if flip_horizontal:
+        img = Image.open(file_path).transpose(Image.FLIP_LEFT_RIGHT)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        data = base64.b64encode(buf.getvalue()).decode("ascii")
+        return f"data:image/png;base64,{data}"
     mime, _ = mimetypes.guess_type(file_path.name)
     data = base64.b64encode(file_path.read_bytes()).decode("ascii")
     return f"data:{mime};base64,{data}"
@@ -456,9 +467,9 @@ def add_occupant_icon(
     """Places an icon near the middle of the occupant's trajectory. offset_frac
     (fraction of y_span) nudges it up toward higher t if non-zero; at 0 it sits
     centered directly on the line. flip_horizontal mirrors the icon left/right
-    (a negative sizex flips a Plotly layout image around its own anchor) --
-    used for occupants 3/4, the downstream two-way-traffic occupants, who walk
-    the opposite direction from 1/2 and so should visually face that way too."""
+    -- used for occupants 3/4, the downstream two-way-traffic occupants, who
+    walk the opposite direction from 1/2 and so should visually face that way
+    too."""
     points = [p for seg in segments for p in seg.points]
     if not points:
         return fig
@@ -468,14 +479,14 @@ def add_occupant_icon(
     y_span = max(y_range[1] - y_range[0], 1e-6)
     fig.add_layout_image(
         dict(
-            source=_asset_data_uri(icon_path),
+            source=_asset_data_uri(icon_path, flip_horizontal=flip_horizontal),
             x=mid_x,
             y=mid_t + offset_frac * y_span,
             xref="x",
             yref="y",
             xanchor="center",
             yanchor="middle",
-            sizex=(-1 if flip_horizontal else 1) * size_frac * x_span,
+            sizex=size_frac * x_span,
             sizey=size_frac * y_span,
             layer="above",
         )
