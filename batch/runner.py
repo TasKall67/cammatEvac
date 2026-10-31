@@ -232,7 +232,11 @@ def run_batch(
                             continue
 
                     valid_exits = select_valid_exits(
-                        config.exits, occ_config.start_x, config.fire_position, tunnel_bounds=tunnel_bounds
+                        config.exits,
+                        occ_config.start_x,
+                        config.fire_position,
+                        tunnel_bounds=tunnel_bounds,
+                        away_from_fire_only=occupant["id"] in ("3", "4"),
                     )
                     exits_to_walk = valid_exits if continue_past_exit else valid_exits[:1]
                     segments = compute_path(

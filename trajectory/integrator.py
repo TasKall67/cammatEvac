@@ -53,6 +53,7 @@ def select_valid_exits(
     fire_position: float | None,
     tunnel_bounds: tuple[float, float] | None = None,
     min_safe_distance_from_fire: float = MIN_SAFE_DISTANCE_FROM_FIRE,
+    away_from_fire_only: bool = False,
 ) -> list[float]:
     """Drops any exit that would require crossing the fire's position to reach
     (an occupant won't run toward/through the fire for a nominally-closer
@@ -65,7 +66,17 @@ def select_valid_exits(
     extra candidate exits -- the tunnel portals are always a way out, even if
     no listed exit is reachable without crossing the fire -- but they're not
     drawn with their own exit icon/line, since the tunnel-portal icon already
-    marks those two points."""
+    marks those two points.
+
+    away_from_fire_only (used for occupants 3/4, the downstream two-way-
+    traffic occupants) additionally drops any exit that sits between the fire
+    and the occupant's own start_x -- it's on the correct side of the fire,
+    but still a step back TOWARD the fire relative to where the occupant
+    already is, which the side-of-fire check alone wouldn't catch (it only
+    knows the fire's position, not the occupant's). With this on, only exits
+    strictly beyond the occupant's own position -- further away from the
+    fire than they already are -- are ever considered, so a nominally nearer
+    exit can never pull them back toward the fire."""
     candidates = list(exits)
     if tunnel_bounds is not None:
         candidates += [tunnel_bounds[0], tunnel_bounds[1]]
@@ -75,6 +86,8 @@ def select_valid_exits(
         else:
             candidates = [x for x in candidates if x >= fire_position]
         candidates = [x for x in candidates if abs(x - fire_position) >= min_safe_distance_from_fire]
+        if away_from_fire_only:
+            candidates = [x for x in candidates if (x <= start_x if start_x <= fire_position else x >= start_x)]
     return sorted(set(candidates), key=lambda x: abs(x - start_x))
 
 

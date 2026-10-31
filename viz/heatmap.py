@@ -451,10 +451,14 @@ def add_occupant_icon(
     icon_path: str,
     size_frac: float = 0.08,
     offset_frac: float = 0.022,
+    flip_horizontal: bool = False,
 ) -> go.Figure:
     """Places an icon near the middle of the occupant's trajectory. offset_frac
     (fraction of y_span) nudges it up toward higher t if non-zero; at 0 it sits
-    centered directly on the line."""
+    centered directly on the line. flip_horizontal mirrors the icon left/right
+    (a negative sizex flips a Plotly layout image around its own anchor) --
+    used for occupants 3/4, the downstream two-way-traffic occupants, who walk
+    the opposite direction from 1/2 and so should visually face that way too."""
     points = [p for seg in segments for p in seg.points]
     if not points:
         return fig
@@ -471,7 +475,7 @@ def add_occupant_icon(
             yref="y",
             xanchor="center",
             yanchor="middle",
-            sizex=size_frac * x_span,
+            sizex=(-1 if flip_horizontal else 1) * size_frac * x_span,
             sizey=size_frac * y_span,
             layer="above",
         )

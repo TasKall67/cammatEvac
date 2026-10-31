@@ -126,6 +126,8 @@ def build_panel_figure(
                 y_range=y_range,
                 dash_override="dot",
             )
-        fig = add_occupant_icon(fig, segments, icon_x_range, icon_y_range, icon_path=OCCUPANT_ICON)
+        fig = add_occupant_icon(
+            fig, segments, icon_x_range, icon_y_range, icon_path=OCCUPANT_ICON, flip_horizontal=o["id"] in ("3", "4")
+        )
 
     return fig
